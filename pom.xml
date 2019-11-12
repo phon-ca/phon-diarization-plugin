@@ -64,6 +64,8 @@
     <!-- Plugin versions -->
     <org.apache.maven.plugins.maven-compiler-plugin.version>3.8.0</org.apache.maven.plugins.maven-compiler-plugin.version>
     <org.apache.maven.plugins.maven-shade-plugin.version>2.2</org.apache.maven.plugins.maven-shade-plugin.version>
+    
+    <fr.lium.spkDiarization.spkdiarization.version>8.4.1</fr.lium.spkDiarization.spkdiarization.version>
   </properties>
 
   <dependencies>
@@ -72,6 +74,11 @@
       <artifactId>phon-app</artifactId>
       <version>${ca.phon.phon-app.version}</version>
     </dependency>
+    <dependency>
+	    <groupId>fr.lium.spkDiarization</groupId>
+	    <artifactId>spkdiarization</artifactId>
+	    <version>${fr.lium.spkDiarization.spkdiarization.version}</version>
+	</dependency>
   </dependencies>
 
   <build>
