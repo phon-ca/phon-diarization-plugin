@@ -11,6 +11,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.function.Consumer;
 
 import javax.xml.parsers.DocumentBuilder;
@@ -39,7 +40,7 @@ public class LIUMDiarizationTool {
 
 	public static final String DO_DECLUSTERING = "--doDEClustering";
 	
-	public Future<Session> diarize(File audioFile, String[] args) throws IOException {
+	public DiarizationResult diarize(File audioFile, String[] args) throws IOException {
 		final String javaHome = System.getProperty("java.home");
 		final String javaBin = javaHome + File.separator + "bin" + File.separator + "java" + 
 				(OSInfo.isWindows() ? ".exe" : "");
@@ -61,10 +62,9 @@ public class LIUMDiarizationTool {
 		fullCmd.add(audioFile.getName());
 		
 		ProcessBuilder pb = new ProcessBuilder(fullCmd);
-		pb.redirectError(new File("/Users/ghedlund/LIUM/err.log"));
 		
-		var p = pb.start();
-		return p.onExit().thenApply( process -> {
+		Process p = pb.start();
+		Future<Session> futureSession = p.onExit().thenApply( process -> {
 			if(p.exitValue() == 0) {
 				try {
 					return transformResults(tmpFile);
@@ -75,6 +75,7 @@ public class LIUMDiarizationTool {
 				return null;
 			}
 		});
+		return new DiarizationResult(p, futureSession);
 	}
 
 	private Session transformResults(File resultFile) throws IOException {
@@ -90,6 +91,27 @@ public class LIUMDiarizationTool {
 		} catch (TransformerFactoryConfigurationError | TransformerException e) {
 			throw new IOException(e);
 		}
+	}
+	
+	public static class DiarizationResult {
+		
+		private Process process;
+		
+		private Future<Session> futureSession;
+		
+		public DiarizationResult(Process process, Future<Session> futureSession) {
+			this.process = process;
+			this.futureSession = futureSession;
+		}
+		
+		public Process getProcess() {
+			return this.process;
+		}
+		
+		public Future<Session> getFutureSession() {
+			return futureSession;
+		}
+		
 	}
 	
 }
