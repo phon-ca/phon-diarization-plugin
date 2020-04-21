@@ -24,9 +24,9 @@ import javax.swing.UIManager;
 import org.jdesktop.swingx.JXBusyLabel;
 
 import ca.phon.app.log.LogUtil;
-import ca.phon.app.session.SessionMediaModel;
 import ca.phon.app.session.editor.EditorEvent;
 import ca.phon.app.session.editor.EditorEventType;
+import ca.phon.app.session.editor.SessionMediaModel;
 import ca.phon.app.session.editor.undo.AddParticipantEdit;
 import ca.phon.app.session.editor.undo.AddRecordEdit;
 import ca.phon.app.session.editor.undo.ChangeSpeakerEdit;
