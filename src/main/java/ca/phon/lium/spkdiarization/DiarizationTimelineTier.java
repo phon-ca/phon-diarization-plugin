@@ -4,23 +4,18 @@ import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
-import java.awt.event.ActionEvent;
-import java.awt.event.MouseEvent;
+import java.awt.event.*;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.io.IOException;
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
-import javax.swing.JButton;
-import javax.swing.JToolBar;
-import javax.swing.SwingUtilities;
-import javax.swing.SwingWorker;
-import javax.swing.UIManager;
+import javax.swing.*;
 
+import ca.phon.app.session.editor.actions.PlaySegmentAction;
+import ca.phon.app.session.editor.view.timeline.actions.SplitRecordAction;
 import org.jdesktop.swingx.JXBusyLabel;
 
 import ca.phon.app.log.LogUtil;
@@ -106,6 +101,124 @@ public class DiarizationTimelineTier extends TimelineTier {
 		setLayout(new BorderLayout());
 		add(recordGrid, BorderLayout.CENTER);
 	}
+
+	private void setupRecordGridActions() {
+		final InputMap inputMap = recordGrid.getInputMap();
+		final ActionMap actionMap = recordGrid.getActionMap();
+
+		final String selectAllKey = "select_all";
+		final PhonUIAction selectAllAct = new PhonUIAction(this, "onSelectAll");
+		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_A, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()), selectAllKey);
+		actionMap.put(selectAllKey, selectAllAct);
+
+		final String escapeKey = "escape";
+		final PhonUIAction escapeAction = new PhonUIAction(this, "onEscape", false);
+		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), escapeKey);
+		actionMap.put(escapeKey, escapeAction);
+//
+//		final String deleteRecordKey = "delete_record";
+//		final DeleteRecordsAction deleteRecordAction = new DeleteRecordsAction(getParentView());
+//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), deleteRecordKey);
+//		actionMap.put(deleteRecordKey, deleteRecordAction);
+//
+//		final String playSegmentKey = "play_segment";
+//		final PlaySegmentAction playSegmentAction = new PlaySegmentAction(getParentView().getEditor());
+//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), playSegmentKey);
+//		actionMap.put(playSegmentKey, playSegmentAction);
+//
+//		final String moveRight = "move_segments_right";
+//		final PhonUIAction moveRightAct = new PhonUIAction(this, "onMoveSegmentsRight", 5);
+//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_PERIOD, KeyEvent.CTRL_DOWN_MASK), moveRight);
+//		actionMap.put(moveRight, moveRightAct);
+//
+//		final String moveRightSlow = "move_segments_right_slow";
+//		final PhonUIAction moveRightSlowAct = new PhonUIAction(this, "onMoveSegmentsRight", 1);
+//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_PERIOD, KeyEvent.CTRL_DOWN_MASK | KeyEvent.SHIFT_DOWN_MASK), moveRightSlow);
+//		actionMap.put(moveRightSlow, moveRightSlowAct);
+//
+//		final String moveLeft = "move_segments_left";
+//		final PhonUIAction moveLeftAct = new PhonUIAction(this, "onMoveSegmentsLeft", 5);
+//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_COMMA, KeyEvent.CTRL_DOWN_MASK), moveLeft);
+//		actionMap.put(moveLeft, moveLeftAct);
+//
+//		final String moveLeftSlow = "move_segments_left_slow";
+//		final PhonUIAction moveLeftSlowAct = new PhonUIAction(this, "onMoveSegmentsLeft", 1);
+//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_COMMA, KeyEvent.CTRL_DOWN_MASK | KeyEvent.SHIFT_DOWN_MASK), moveLeftSlow);
+//		actionMap.put(moveLeftSlow, moveLeftSlowAct);
+//
+//		final String move = "move_segments";
+//		final PhonUIAction moveAct = new PhonUIAction(this, "onMoveSegments");
+//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_SLASH, KeyEvent.CTRL_DOWN_MASK), move);
+//		actionMap.put(move, moveAct);
+//
+//		final String growSegments = "grow_segments";
+//		final PhonUIAction growSegmentsAct = new PhonUIAction(this, "onGrowSegments", 3);
+//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_G, KeyEvent.CTRL_DOWN_MASK ), growSegments);
+//		actionMap.put(growSegments, growSegmentsAct);
+//
+//		final String growSegmentsSlow = "grow_segments_slow";
+//		final PhonUIAction growSegmentsSlowAct = new PhonUIAction(this, "onGrowSegments", 1);
+//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_G, KeyEvent.CTRL_DOWN_MASK | KeyEvent.SHIFT_DOWN_MASK), growSegmentsSlow);
+//		actionMap.put(growSegmentsSlow, growSegmentsSlowAct);
+//
+//		final String shrinkSegments = "shrink_segments";
+//		final PhonUIAction shrinkSegmentsAct = new PhonUIAction(this, "onShrinkSegments", 3);
+//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_K, KeyEvent.CTRL_DOWN_MASK ), shrinkSegments);
+//		actionMap.put(shrinkSegments, shrinkSegmentsAct);
+//
+//		final String shrinkSegmentsSlow = "shrink_segments_slow";
+//		final PhonUIAction shrinkSegmentsSlowAct = new PhonUIAction(this, "onShrinkSegments", 1);
+//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_K, KeyEvent.CTRL_DOWN_MASK |KeyEvent.SHIFT_DOWN_MASK), shrinkSegmentsSlow);
+//		actionMap.put(shrinkSegmentsSlow, shrinkSegmentsSlowAct);
+//
+//		final PhonUIAction copyRecordsAct = new PhonUIAction(this, "copy");
+//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_C, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()), "copy");
+//		actionMap.put("copy", copyRecordsAct);
+//
+//		final PhonUIAction pasteRecordsAct = new PhonUIAction( this, "paste" );
+//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()), "paste");
+//		actionMap.put("paste", pasteRecordsAct);
+//
+//		final PhonUIAction cutRecordsAct = new PhonUIAction(this, "cut");
+//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_X, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()), "cut");
+//		actionMap.put("cut", cutRecordsAct);
+//
+//		for (int i = 0; i < 10; i++) {
+//			final PhonUIAction chSpeakerAct = new PhonUIAction(this, "onChangeSpeakerByIndex", i);
+//			KeyStroke ks = KeyStroke.getKeyStroke(KeyEvent.VK_0 + i,
+//					Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+//			chSpeakerAct.putValue(PhonUIAction.ACCELERATOR_KEY, ks);
+//			String id = "change_speaker_" + i;
+//
+//			actionMap.put(id, chSpeakerAct);
+//			inputMap.put(ks, id);
+//		}
+//
+//		// split record
+//		final String splitRecordId = "split_record";
+//		final SplitRecordAction splitRecordAct = new SplitRecordAction(getParentView());
+//		final KeyStroke splitRecordKs = KeyStroke.getKeyStroke(KeyEvent.VK_S, 0);
+//		inputMap.put(splitRecordKs, splitRecordId);
+//		actionMap.put(splitRecordId, splitRecordAct);
+//
+//		final String acceptSplitId = "accept_split_record";
+//		final PhonUIAction acceptSplitRecordAct = new PhonUIAction(this, "onEndSplitRecord", true);
+//		final KeyStroke acceptSplitRecordKs = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0);
+//		inputMap.put(acceptSplitRecordKs, acceptSplitId);
+//		actionMap.put(acceptSplitId, acceptSplitRecordAct);
+//
+//		// modify record split
+//		final String splitAtGroupId = "split_record_at_group_";
+//		for (int i = 0; i < 10; i++) {
+//			final PhonUIAction splitRecordAtGrpAct = new PhonUIAction(this, "onSplitRecordOnGroup", i);
+//			final KeyStroke ks = KeyStroke.getKeyStroke(KeyEvent.VK_0 + i, 0);
+//			inputMap.put(ks, splitAtGroupId + i);
+//			actionMap.put(splitAtGroupId + i, splitRecordAtGrpAct);
+//		}
+//
+//		recordGrid.setInputMap(WHEN_FOCUSED, inputMap);
+//		recordGrid.setActionMap(actionMap);
+	}
 	
 	private void setupRecord(Record r) {
 		if (currentRecordInterval != null)
@@ -180,6 +293,83 @@ public class DiarizationTimelineTier extends TimelineTier {
 		
 		getParentView().getTierPanel().revalidate();
 		recordGrid.repaint();
+	}
+
+	public RecordGrid getRecordGrid() {
+		return this.recordGrid;
+	}
+
+	public ListSelectionModel getSelectionModel() {
+		return recordGrid.getSelectionModel();
+	}
+
+	/**
+	 * Is the speaker visible?
+	 *
+	 * @param speaker
+	 * @return
+	 */
+	public boolean isSpeakerVisible(Participant speaker) {
+		return recordGrid.getSpeakers().contains(speaker);
+	}
+
+	public void setSpeakerVisible(Participant speaker, boolean visible) {
+		List<Participant> currentSpeakers = new ArrayList<>(recordGrid.getSpeakers());
+		List<Participant> allSpeakers = new ArrayList<>();
+		for(Participant p:recordGrid.getSession().getParticipants()) allSpeakers.add(p);
+
+		List<Participant> newSpeakerList = new ArrayList<>();
+		for(Participant sessionSpeaker:allSpeakers) {
+			if(sessionSpeaker == speaker) {
+				if(visible)
+					newSpeakerList.add(sessionSpeaker);
+			} else {
+				if(currentSpeakers.contains(sessionSpeaker))
+					newSpeakerList.add(sessionSpeaker);
+			}
+		}
+
+		recordGrid.setSpeakers(newSpeakerList);
+	}
+
+	public void toggleSpeaker(PhonActionEvent pae) {
+		Participant speaker = (Participant) pae.getData();
+		setSpeakerVisible(speaker, !isSpeakerVisible(speaker));
+	}
+
+	public List<Participant> getSpeakerList() {
+		List<Participant> retVal = new ArrayList<>();
+
+		Session session = getParentView().getEditor().getSession();
+		for (var speaker : session.getParticipants()) {
+			if (isSpeakerVisible(speaker)) {
+				retVal.add(speaker);
+			}
+		}
+
+		return retVal;
+	}
+
+	public void onSelectAll(PhonActionEvent pae) {
+		List<Integer> visibleRecords = new ArrayList<>();
+		List<Participant> visibleSpeakers = getSpeakerList();
+
+		for(int i = 0; i < getParentView().getEditor().getSession().getRecordCount(); i++) {
+			if(visibleSpeakers.contains(getParentView().getEditor().getSession().getRecord(i).getSpeaker())) {
+				visibleRecords.add(i);
+			}
+		}
+		if(visibleRecords.size() == 0) return;
+
+		if(getSelectionModel().getSelectedItemsCount() == visibleRecords.size()) {
+			getSelectionModel().setSelectionInterval(getParentView().getEditor().getCurrentRecordIndex(),
+					getParentView().getEditor().getCurrentRecordIndex());
+		} else {
+			for(int visibleRecord:visibleRecords) {
+				getSelectionModel().addSelectionInterval(visibleRecord, visibleRecord);
+			}
+		}
+		recordGrid.repaint(recordGrid.getVisibleRect());
 	}
 	
 	public void onDiarize(PhonActionEvent pae) {
