@@ -1,21 +1,26 @@
 package ca.phon.lium.spkdiarization;
 
-import java.awt.BorderLayout;
-import java.awt.Dimension;
-import java.awt.Rectangle;
-import java.awt.Toolkit;
+import java.awt.*;
 import java.awt.event.*;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.*;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.swing.*;
+import javax.tools.Tool;
 
 import ca.phon.app.session.editor.actions.PlaySegmentAction;
 import ca.phon.app.session.editor.view.timeline.actions.SplitRecordAction;
+import ca.phon.project.Project;
+import ca.phon.session.io.*;
 import org.jdesktop.swingx.JXBusyLabel;
 
 import ca.phon.app.log.LogUtil;
@@ -52,6 +57,11 @@ import ca.phon.worker.PhonWorker;
 @PhonPlugin(name="phon-diarization-plugin", author="Greg Hedlund", minPhonVersion="3.1.0")
 public class DiarizationTimelineTier extends TimelineTier {
 
+	/**
+	 * Location of stored diarization files in project __res folder.
+	 */
+	public final static String DIARIZATION_FOLDER = "diarization";
+
 	private JToolBar toolbar;
 	
 	private JXBusyLabel busyLabel;
@@ -62,6 +72,8 @@ public class DiarizationTimelineTier extends TimelineTier {
 	
 	private RecordGrid recordGrid;
 	private TimeUIModel.Interval currentRecordInterval = null;
+
+	private AtomicReference<DiarizationWorker> workerRef = new AtomicReference<>();
 	
 	public DiarizationTimelineTier(TimelineView parent) {
 		super(parent);
@@ -80,7 +92,7 @@ public class DiarizationTimelineTier extends TimelineTier {
 		busyLabel = new JXBusyLabel(new Dimension(16, 16));
 		busyLabel.setBusy(false);
 		
-		final PhonUIAction diarizeAct = new PhonUIAction(this, "onDiarize");
+		final PhonUIAction diarizeAct = new PhonUIAction(this, "showDiarizationMenu");
 		diarizeAct.putValue(PhonUIAction.NAME, "Diarization");
 		diarizeAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Run LIUM speaker diarization tool");
 		diarizeButton = new JButton(diarizeAct);
@@ -303,6 +315,21 @@ public class DiarizationTimelineTier extends TimelineTier {
 		return recordGrid.getSelectionModel();
 	}
 
+	private File diarizationFileForSession(boolean createFolder, String ext) {
+		Project project = getParentView().getEditor().getProject();
+		Session session = getParentView().getEditor().getSession();
+
+		File resFolder = new File(project.getLocation(), "__res");
+		File diarizationFolder = new File(resFolder, DIARIZATION_FOLDER);
+
+		if(createFolder && !diarizationFolder.exists()) {
+			diarizationFolder.mkdirs();
+		}
+
+		File retVal = new File(diarizationFolder, session.getCorpus() + "_" + session.getName() + ext);
+		return retVal;
+	}
+
 	/**
 	 * Is the speaker visible?
 	 *
@@ -371,8 +398,65 @@ public class DiarizationTimelineTier extends TimelineTier {
 		}
 		recordGrid.repaint(recordGrid.getVisibleRect());
 	}
-	
-	public void onDiarize(PhonActionEvent pae) {
+
+	public void showDiarizationMenu(PhonActionEvent pae) {
+		JPopupMenu menu = new JPopupMenu();
+		MenuBuilder builder = new MenuBuilder(menu);
+
+		setupDiarizationMenu(builder);
+
+		menu.show(diarizeButton, 0, diarizeButton.getHeight());
+	}
+
+	private void setupDiarizationMenu(MenuBuilder builder) {
+		File prevResultsFile = diarizationFileForSession(false, ".xml");
+		if(prevResultsFile.exists()) {
+			PhonUIAction loadPrevResultsAct = new PhonUIAction(this, "onLoadPreviousResults", prevResultsFile);
+			loadPrevResultsAct.putValue(PhonUIAction.NAME, "Load previous results");
+			loadPrevResultsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Load result from previous diarization execution");
+
+			builder.addItem(".", loadPrevResultsAct);
+			builder.addSeparator(".", "load_previous");
+		}
+
+		PhonUIAction liumDiarizationAct = new PhonUIAction(this, "onLIUMDiarization");
+		liumDiarizationAct.putValue(PhonUIAction.NAME, "LIUM diarization...");
+		liumDiarizationAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Diarize session audio with LIUM diarization tool");
+		builder.addItem(".", liumDiarizationAct);
+	}
+
+	/**
+	 * Load previous results file
+	 *
+	 * @param pae with data of type File
+	 *
+	 * @throws IllegalArgumentException if pae.getData() is null or not a File
+	 */
+	public void onLoadPreviousResults(PhonActionEvent pae) {
+		if(pae.getData() == null || !(pae.getData() instanceof File))
+			throw new IllegalArgumentException();
+		File f = (File)pae.getData();
+
+		SessionReader reader = (new SessionInputFactory()).createReaderForFile(f);
+		try {
+			if (reader != null) {
+				Session s = reader.readSession(new FileInputStream(f));
+				setSession(s);
+			}
+		} catch (IOException e) {
+			Toolkit.getDefaultToolkit().beep();
+			LogUtil.severe(e);
+		}
+	}
+
+	/**
+	 * Execute LIUM diarization worker
+	 *
+	 * @param pae
+	 */
+	public void onLIUMDiarization(PhonActionEvent pae) {
+		if(workerRef.get() != null) return;
+
 		SessionMediaModel mediaModel = getParentView().getEditor().getMediaModel();
 		if(!mediaModel.isSessionAudioAvailable()) {
 			Toolkit.getDefaultToolkit().beep();
@@ -386,6 +470,7 @@ public class DiarizationTimelineTier extends TimelineTier {
 			DiarizationResult result = tool.diarize(mediaModel.getSessionAudioFile(), new String[0]);
 			
 			DiarizationWorker worker = new DiarizationWorker(result.getFutureSession());
+			workerRef.set(worker);
 			worker.execute();
 		} catch (IOException e) {
 			Toolkit.getDefaultToolkit().beep();
@@ -435,11 +520,8 @@ public class DiarizationTimelineTier extends TimelineTier {
 			builder.addItem(".", addAllAct);
 			builder.addItem(".", clearAllAct);
 		} else {
-			final PhonUIAction diarizeAct = new PhonUIAction(this, "onDiarize");
-			diarizeAct.putValue(PhonUIAction.NAME, "Diarization");
-			diarizeAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Run LIUM speaker diarization tool");
-			
-			builder.addItem(".", diarizeAct).setEnabled(getParentView().getEditor().getMediaModel().isSessionAudioAvailable());
+			if(getParentView().getEditor().getMediaModel().isSessionAudioAvailable())
+				setupDiarizationMenu(builder);
 		}
 	}
 
@@ -609,6 +691,19 @@ public class DiarizationTimelineTier extends TimelineTier {
 		protected Session doInBackground() throws Exception {
 			Session s = futureSession.get();
 			publish(s);
+
+			// save results for later use
+			File diaFile = diarizationFileForSession(true, ".xml");
+			SessionOutputFactory factory = new SessionOutputFactory();
+			SessionWriter writer = factory.createWriter();
+
+			if(!diaFile.getParentFile().exists()) {
+				diaFile.getParentFile().mkdirs();
+			}
+
+			FileOutputStream fout = new FileOutputStream(diaFile);
+			writer.writeSession(s, fout);
+
 			return s;
 		}
 		
@@ -624,6 +719,8 @@ public class DiarizationTimelineTier extends TimelineTier {
 		protected void done() {
 			busyLabel.setBusy(false);
 			updateToolbarButtons();
+
+			workerRef.set(null);
 		}
 		
 	}

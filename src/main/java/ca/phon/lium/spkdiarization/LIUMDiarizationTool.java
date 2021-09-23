@@ -1,11 +1,6 @@
 package ca.phon.lium.spkdiarization;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.IOException;
+import java.io.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -25,6 +20,8 @@ import javax.xml.transform.TransformerFactoryConfigurationError;
 import javax.xml.transform.stream.StreamResult;
 import javax.xml.transform.stream.StreamSource;
 
+import ca.phon.app.log.LogUtil;
+import ca.phon.worker.PhonWorker;
 import org.w3c.dom.Document;
 import org.xml.sax.SAXException;
 
@@ -64,6 +61,19 @@ public class LIUMDiarizationTool {
 		ProcessBuilder pb = new ProcessBuilder(fullCmd);
 		
 		Process p = pb.start();
+		Runnable readErrData = () -> {
+			// read everything from stderr
+			try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getErrorStream()))) {
+				String line = null;
+				while ((line = reader.readLine()) != null) {
+					LogUtil.info(line);
+				}
+			} catch (IOException e) {
+				LogUtil.severe(e);
+			}
+		};
+		PhonWorker.getInstance().invokeLater(readErrData);
+
 		Future<Session> futureSession = p.onExit().thenApply( process -> {
 			if(p.exitValue() == 0) {
 				try {
