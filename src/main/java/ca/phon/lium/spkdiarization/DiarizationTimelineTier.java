@@ -15,9 +15,11 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
 
 import javax.swing.*;
+import javax.swing.border.TitledBorder;
 import javax.tools.Tool;
 
 import ca.phon.app.session.editor.actions.PlaySegmentAction;
+import ca.phon.app.session.editor.view.timeline.*;
 import ca.phon.app.session.editor.view.timeline.actions.SplitRecordAction;
 import ca.phon.project.Project;
 import ca.phon.session.io.*;
@@ -31,12 +33,6 @@ import ca.phon.app.session.editor.undo.AddParticipantEdit;
 import ca.phon.app.session.editor.undo.AddRecordEdit;
 import ca.phon.app.session.editor.undo.ChangeSpeakerEdit;
 import ca.phon.app.session.editor.undo.TierEdit;
-import ca.phon.app.session.editor.view.timeline.RecordGrid;
-import ca.phon.app.session.editor.view.timeline.RecordGridMouseAdapter;
-import ca.phon.app.session.editor.view.timeline.TimelineRecordTier;
-import ca.phon.app.session.editor.view.timeline.TimelineTier;
-import ca.phon.app.session.editor.view.timeline.TimelineView;
-import ca.phon.app.session.editor.view.timeline.TimelineViewColors;
 import ca.phon.app.session.editor.view.timeline.RecordGrid.GhostMarker;
 import ca.phon.lium.spkdiarization.LIUMDiarizationTool.DiarizationResult;
 import ca.phon.media.TimeUIModel;
@@ -53,6 +49,7 @@ import ca.phon.ui.action.PhonActionEvent;
 import ca.phon.ui.action.PhonUIAction;
 import ca.phon.ui.menu.MenuBuilder;
 import ca.phon.worker.PhonWorker;
+import org.jdesktop.swingx.JXTitledSeparator;
 
 @PhonPlugin(name="phon-diarization-plugin", author="Greg Hedlund", minPhonVersion="3.1.0")
 public class DiarizationTimelineTier extends TimelineTier {
@@ -111,7 +108,10 @@ public class DiarizationTimelineTier extends TimelineTier {
 		updateToolbarButtons();
 		
 		setLayout(new BorderLayout());
+		add(new TimelineTitledSeparator(getTimeModel(), "Diarization Results", null, SwingConstants.LEFT, Color.black, 1), BorderLayout.NORTH);
 		add(recordGrid, BorderLayout.CENTER);
+
+		setVisible(false);
 	}
 
 	private void setupRecordGridActions() {
@@ -299,12 +299,18 @@ public class DiarizationTimelineTier extends TimelineTier {
 	
 	public void setSession(Session session) {
 		recordGrid.setSession(session);
-		
+
 		recordGrid.clearSpeakers();
 		session.getParticipants().forEach(recordGrid::addSpeaker);
-		
+
 		getParentView().getTierPanel().revalidate();
 		recordGrid.repaint();
+
+		if(session.getRecordCount() > 0) {
+			setVisible(true);
+		} else {
+			setVisible(false);
+		}
 	}
 
 	public RecordGrid getRecordGrid() {
