@@ -1,4 +1,4 @@
-package ca.phon.lium.spkdiarization;
+package ca.phon.plugins.diarization;
 
 import java.awt.*;
 import java.awt.event.*;
@@ -6,37 +6,21 @@ import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.*;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicReference;
 
 import javax.swing.*;
-import javax.swing.border.TitledBorder;
-import javax.tools.Tool;
 
-import ca.phon.app.session.editor.actions.PlaySegmentAction;
 import ca.phon.app.session.editor.view.timeline.*;
-import ca.phon.app.session.editor.view.timeline.actions.SplitRecordAction;
-import ca.phon.project.Project;
 import ca.phon.session.io.*;
 import org.jdesktop.swingx.JXBusyLabel;
 
 import ca.phon.app.log.LogUtil;
-import ca.phon.app.session.editor.EditorEvent;
-import ca.phon.app.session.editor.EditorEventType;
-import ca.phon.app.session.editor.SessionMediaModel;
 import ca.phon.app.session.editor.undo.AddParticipantEdit;
 import ca.phon.app.session.editor.undo.AddRecordEdit;
-import ca.phon.app.session.editor.undo.ChangeSpeakerEdit;
-import ca.phon.app.session.editor.undo.TierEdit;
 import ca.phon.app.session.editor.view.timeline.RecordGrid.GhostMarker;
-import ca.phon.lium.spkdiarization.LIUMDiarizationTool.DiarizationResult;
 import ca.phon.media.TimeUIModel;
-import ca.phon.media.TimeUIModel.Interval;
 import ca.phon.media.TimeUIModel.Marker;
 import ca.phon.plugin.PhonPlugin;
 import ca.phon.session.MediaSegment;
@@ -48,16 +32,9 @@ import ca.phon.session.SystemTierType;
 import ca.phon.ui.action.PhonActionEvent;
 import ca.phon.ui.action.PhonUIAction;
 import ca.phon.ui.menu.MenuBuilder;
-import ca.phon.worker.PhonWorker;
-import org.jdesktop.swingx.JXTitledSeparator;
 
 @PhonPlugin(name="phon-diarization-plugin", author="Greg Hedlund", minPhonVersion="3.1.0")
 public class DiarizationTimelineTier extends TimelineTier {
-
-	/**
-	 * Location of stored diarization files in project __res folder.
-	 */
-	public final static String DIARIZATION_FOLDER = "diarization";
 
 	private JToolBar toolbar;
 	
@@ -70,8 +47,6 @@ public class DiarizationTimelineTier extends TimelineTier {
 	private RecordGrid recordGrid;
 	private TimeUIModel.Interval currentRecordInterval = null;
 
-	private AtomicReference<DiarizationWorker> workerRef = new AtomicReference<>();
-	
 	public DiarizationTimelineTier(TimelineView parent) {
 		super(parent);
 		
@@ -321,21 +296,6 @@ public class DiarizationTimelineTier extends TimelineTier {
 		return recordGrid.getSelectionModel();
 	}
 
-	private File diarizationFileForSession(boolean createFolder, String ext) {
-		Project project = getParentView().getEditor().getProject();
-		Session session = getParentView().getEditor().getSession();
-
-		File resFolder = new File(project.getLocation(), "__res");
-		File diarizationFolder = new File(resFolder, DIARIZATION_FOLDER);
-
-		if(createFolder && !diarizationFolder.exists()) {
-			diarizationFolder.mkdirs();
-		}
-
-		File retVal = new File(diarizationFolder, session.getCorpus() + "_" + session.getName() + ext);
-		return retVal;
-	}
-
 	/**
 	 * Is the speaker visible?
 	 *
@@ -415,7 +375,9 @@ public class DiarizationTimelineTier extends TimelineTier {
 	}
 
 	private void setupDiarizationMenu(MenuBuilder builder) {
-		File prevResultsFile = diarizationFileForSession(false, ".xml");
+		DiarizationResultsManager resultsManager = new DiarizationResultsManager(getParentView().getEditor().getProject(),
+				getParentView().getEditor().getSession());
+		File prevResultsFile = resultsManager.diarizationResultsFile(false);
 		if(prevResultsFile.exists()) {
 			PhonUIAction loadPrevResultsAct = new PhonUIAction(this, "onLoadPreviousResults", prevResultsFile);
 			loadPrevResultsAct.putValue(PhonUIAction.NAME, "Load previous results");
@@ -425,10 +387,10 @@ public class DiarizationTimelineTier extends TimelineTier {
 			builder.addSeparator(".", "load_previous");
 		}
 
-		PhonUIAction liumDiarizationAct = new PhonUIAction(this, "onLIUMDiarization");
-		liumDiarizationAct.putValue(PhonUIAction.NAME, "LIUM diarization...");
-		liumDiarizationAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Diarize session audio with LIUM diarization tool");
-		builder.addItem(".", liumDiarizationAct);
+		PhonUIAction diarizationWizardAct = new PhonUIAction(this, "onDiarizationWizard");
+		diarizationWizardAct.putValue(PhonUIAction.NAME, "Diarization wizard...");
+		diarizationWizardAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Start diarization wizard");
+		builder.addItem(".", diarizationWizardAct);
 	}
 
 	/**
@@ -453,35 +415,6 @@ public class DiarizationTimelineTier extends TimelineTier {
 			Toolkit.getDefaultToolkit().beep();
 			LogUtil.severe(e);
 		}
-	}
-
-	/**
-	 * Execute LIUM diarization worker
-	 *
-	 * @param pae
-	 */
-	public void onLIUMDiarization(PhonActionEvent pae) {
-		if(workerRef.get() != null) return;
-
-		SessionMediaModel mediaModel = getParentView().getEditor().getMediaModel();
-		if(!mediaModel.isSessionAudioAvailable()) {
-			Toolkit.getDefaultToolkit().beep();
-			return;
-		}
-		
-		busyLabel.setBusy(true);
-		
-		LIUMDiarizationTool tool = new LIUMDiarizationTool();
-		try {
-			DiarizationResult result = tool.diarize(mediaModel.getSessionAudioFile(), new String[0]);
-			
-			DiarizationWorker worker = new DiarizationWorker(result.getFutureSession());
-			workerRef.set(worker);
-			worker.execute();
-		} catch (IOException e) {
-			Toolkit.getDefaultToolkit().beep();
-			LogUtil.severe(e);
-		}		
 	}
 
 	public void onAddAllResults(PhonActionEvent pae) {
@@ -509,6 +442,14 @@ public class DiarizationTimelineTier extends TimelineTier {
 		SessionFactory factory = SessionFactory.newFactory();
 		setSession(factory.createSession());
 		updateToolbarButtons();
+	}
+
+	public void onDiarizationWizard(PhonActionEvent pae) {
+		DiarizationWizard wizard = new DiarizationWizard(this);
+		wizard.pack();
+		wizard.setSize(800,  600);
+		wizard.setLocationRelativeTo(this);
+		wizard.setVisible(true);
 	}
 	
 	@Override
@@ -684,52 +625,6 @@ public class DiarizationTimelineTier extends TimelineTier {
 //		}
 
 	};
-	
-	private class DiarizationWorker extends SwingWorker<Session, Session> {
-
-		private Future<Session> futureSession;
-		
-		public DiarizationWorker(Future<Session> futureSession) {
-			this.futureSession = futureSession;
-		}
-		
-		@Override
-		protected Session doInBackground() throws Exception {
-			Session s = futureSession.get();
-			publish(s);
-
-			// save results for later use
-			File diaFile = diarizationFileForSession(true, ".xml");
-			SessionOutputFactory factory = new SessionOutputFactory();
-			SessionWriter writer = factory.createWriter();
-
-			if(!diaFile.getParentFile().exists()) {
-				diaFile.getParentFile().mkdirs();
-			}
-
-			FileOutputStream fout = new FileOutputStream(diaFile);
-			writer.writeSession(s, fout);
-
-			return s;
-		}
-		
-		@Override
-		protected void process(List<Session> chunks) {
-			if(chunks.size() > 0) {
-				Session s = chunks.get(0);
-				setSession(s);
-			}
-		}
-
-		@Override
-		protected void done() {
-			busyLabel.setBusy(false);
-			updateToolbarButtons();
-
-			workerRef.set(null);
-		}
-		
-	}
 
 	@Override
 	public void onClose() {

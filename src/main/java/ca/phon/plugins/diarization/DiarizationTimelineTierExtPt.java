@@ -1,4 +1,4 @@
-package ca.phon.lium.spkdiarization;
+package ca.phon.plugins.diarization;
 
 import ca.phon.app.session.editor.view.timeline.TimelineTier;
 import ca.phon.app.session.editor.view.timeline.TimelineView;
