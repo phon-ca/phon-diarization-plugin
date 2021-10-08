@@ -13,6 +13,7 @@ import ca.phon.ui.wizard.WizardStep;
 import org.jdesktop.swingx.*;
 
 import javax.swing.*;
+import javax.swing.plaf.ColorUIResource;
 import java.awt.*;
 import java.io.*;
 import java.util.concurrent.*;
@@ -214,7 +215,7 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
     private void startDiarization(DiarizationTool tool, File mediaFile) {
         tool.addListener(diarizationListener);
         try {
-            DiarizationResult result = tool.diarize(mediaFile);
+            DiarizationFutureResult result = tool.diarize(mediaFile);
 
             DiarizationWorker worker = new DiarizationWorker(result);
             workerRef.set(worker);
@@ -258,9 +259,9 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
 
     private class DiarizationWorker extends SwingWorker<Session, Session> {
 
-        private DiarizationResult diarizationResult;
+        private DiarizationFutureResult diarizationResult;
 
-        public DiarizationWorker(DiarizationResult diarizationResult) {
+        public DiarizationWorker(DiarizationFutureResult diarizationResult) {
             this.diarizationResult = diarizationResult;
         }
 
@@ -276,11 +277,20 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
             Project p = diarizationTier.getParentView().getEditor().getProject();
             DiarizationResultsManager resultsManager = new DiarizationResultsManager(p, s);
 
+            SwingUtilities.invokeLater(() -> {
+               bufferPanel.getLogBuffer().append("Saving diarization results to file " + resultsManager.diarizationResultsFile(false));
+               bufferPanel.getLogBuffer().setCaretPosition(bufferPanel.getLogBuffer().getDocument().getLength());
+            });
             try {
                 resultsManager.saveDiarizationResults(s);
             } catch (IOException e) {
                 Toolkit.getDefaultToolkit().beep();
                 LogUtil.severe(e);
+                SwingUtilities.invokeLater(() -> {
+                    bufferPanel.getLogBuffer().append("Error saving results " + e.getMessage());
+                    bufferPanel.getLogBuffer().setCaretPosition(bufferPanel.getLogBuffer().getDocument().getLength());
+                    bufferPanel.getLogBuffer().setForeground(Color.red);
+                });
             }
 
             return s;

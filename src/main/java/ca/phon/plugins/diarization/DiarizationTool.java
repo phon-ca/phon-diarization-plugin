@@ -36,7 +36,7 @@ public abstract class DiarizationTool {
 	 *
 	 * @throws IOException
 	 */
-	public abstract  DiarizationResult diarize(File audioFile)
+	public abstract DiarizationFutureResult diarize(File audioFile)
 			throws IOException;
 
 }

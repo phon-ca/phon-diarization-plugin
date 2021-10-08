@@ -14,7 +14,6 @@ import javax.xml.transform.stream.StreamResult;
 import javax.xml.transform.stream.StreamSource;
 
 import ca.phon.app.log.LogUtil;
-import ca.phon.plugins.diarization.*;
 import ca.phon.session.io.*;
 import ca.phon.worker.PhonWorker;
 
@@ -122,7 +121,7 @@ public final class LIUMDiarizationTool extends DiarizationTool {
 		this.cMax = cMax;
 	}
 
-	public DiarizationResult diarize(File audioFile) throws IOException {
+	public DiarizationFutureResult diarize(File audioFile) throws IOException {
 		final String javaHome = System.getProperty("java.home");
 		final String javaBin = javaHome + File.separator + "bin" + File.separator + "java" + 
 				(OSInfo.isWindows() ? ".exe" : "");
@@ -168,7 +167,7 @@ public final class LIUMDiarizationTool extends DiarizationTool {
 			if(exitValue == 0) {
 				try {
 					Session retVal = transformResults(tmpFile);
-					fireDiarizationEvent(DiarizationEvent.DiarizationEventType.DiarizationCompleted, retVal.getRecordCount() + " segments detected");
+					fireDiarizationEvent(DiarizationEvent.DiarizationEventType.DiarizationCompleted, retVal.getParticipantCount() + " clusters with " + retVal.getRecordCount() + " segments detected");
 					return retVal;
 				} catch (IOException e) {
 					fireDiarizationEvent(DiarizationEvent.DiarizationEventType.DiarizationError, e.getLocalizedMessage());
@@ -197,7 +196,7 @@ public final class LIUMDiarizationTool extends DiarizationTool {
 		}
 	}
 	
-	public static class LIUMDiarizationResult implements DiarizationResult {
+	public static class LIUMDiarizationResult implements DiarizationFutureResult {
 		
 		private Process process;
 		

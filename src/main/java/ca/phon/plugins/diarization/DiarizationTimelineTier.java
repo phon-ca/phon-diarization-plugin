@@ -9,11 +9,13 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.*;
 import java.util.List;
+import java.util.stream.*;
 
 import javax.swing.*;
 
 import ca.phon.app.session.editor.view.timeline.*;
 import ca.phon.session.io.*;
+import ca.phon.util.Tuple;
 import org.jdesktop.swingx.JXBusyLabel;
 
 import ca.phon.app.log.LogUtil;
@@ -37,12 +39,8 @@ import ca.phon.ui.menu.MenuBuilder;
 public class DiarizationTimelineTier extends TimelineTier {
 
 	private JToolBar toolbar;
-	
-	private JXBusyLabel busyLabel;
+
 	private JButton diarizeButton;
-	
-	private JButton addAllButton;
-	private JButton clearResultsButton;
 	
 	private RecordGrid recordGrid;
 	private TimeUIModel.Interval currentRecordInterval = null;
@@ -58,29 +56,22 @@ public class DiarizationTimelineTier extends TimelineTier {
 		recordGrid = new RecordGrid(getTimeModel(), factory.createSession());
 		recordGrid.setTiers(Collections.singletonList(SystemTierType.Segment.getName()));
 		recordGrid.addRecordGridMouseListener(mouseListener);
+
+		recordGrid.addParticipantMenuHandler((Participant p, MenuBuilder builder) -> {
+			builder.removeAll();
+			JMenu assignMenu = builder.addMenu(".", "Assign records to participant");
+			setupParticipantAssigmentMenu(p, new MenuBuilder(assignMenu));
+		});
 		
 		toolbar = getParentView().getToolbar();
-		
-		busyLabel = new JXBusyLabel(new Dimension(16, 16));
-		busyLabel.setBusy(false);
 		
 		final PhonUIAction diarizeAct = new PhonUIAction(this, "showDiarizationMenu");
 		diarizeAct.putValue(PhonUIAction.NAME, "Diarization");
 		diarizeAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Run LIUM speaker diarization tool");
 		diarizeButton = new JButton(diarizeAct);
 		
-		final PhonUIAction addAllAct = new PhonUIAction(this, "onAddAllResults");
-		addAllAct.putValue(PhonUIAction.NAME, "Add all diarization results");
-		addAllAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Add all diarization results");
-		addAllButton = new JButton(addAllAct);
-		
-		final PhonUIAction clearAllAct = new PhonUIAction(this, "onClearResults");
-		clearAllAct.putValue(PhonUIAction.NAME, "Clear diarization results");
-		clearAllAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Clear diarization results");
-		clearResultsButton = new JButton(clearAllAct);
-		
 		toolbar.addSeparator();
-		updateToolbarButtons();
+		toolbar.add(diarizeButton);
 		
 		setLayout(new BorderLayout());
 		add(new TimelineTitledSeparator(getTimeModel(), "Diarization Results", null, SwingConstants.LEFT, Color.black, 1), BorderLayout.NORTH);
@@ -246,28 +237,7 @@ public class DiarizationTimelineTier extends TimelineTier {
 		
 		mouseListener.waitForRecordChange = false;
 	}
-	
-	private void updateToolbarButtons() {
-		if(hasDiarizationResults()) {
-			toolbar.remove(busyLabel);
-			toolbar.remove(diarizeButton);
-			
-			toolbar.add(addAllButton);
-			toolbar.add(clearResultsButton);
-		} else {
-			toolbar.remove(addAllButton);
-			toolbar.remove(clearResultsButton);
-			
-			toolbar.add(busyLabel);
-			toolbar.add(diarizeButton);
-		}
-		
-		toolbar.revalidate();
-		toolbar.repaint();
-		
-		diarizeButton.setEnabled(getParentView().getEditor().getMediaModel().isSessionAudioAvailable());
-	}
-	
+
 	public boolean hasDiarizationResults() {
 		return recordGrid.getSession().getRecordCount() > 0;
 	}
@@ -283,13 +253,24 @@ public class DiarizationTimelineTier extends TimelineTier {
 
 		if(session.getRecordCount() > 0) {
 			setVisible(true);
+			getParentView().getRecordTier().setVisible(false);
+			getParentView().getWaveformTier().clearSelection();
 		} else {
 			setVisible(false);
+			getParentView().getRecordTier().setVisible(true);
 		}
 	}
 
 	public RecordGrid getRecordGrid() {
 		return this.recordGrid;
+	}
+
+	public boolean isShowingDiarizationResults() {
+		return this.isVisible() && this.recordGrid.getSession().getParticipantCount() > 0;
+	}
+
+	public void clearDiarizationResults() {
+		setSession(SessionFactory.newFactory().createSession());
 	}
 
 	public ListSelectionModel getSelectionModel() {
@@ -375,22 +356,66 @@ public class DiarizationTimelineTier extends TimelineTier {
 	}
 
 	private void setupDiarizationMenu(MenuBuilder builder) {
-		DiarizationResultsManager resultsManager = new DiarizationResultsManager(getParentView().getEditor().getProject(),
-				getParentView().getEditor().getSession());
-		File prevResultsFile = resultsManager.diarizationResultsFile(false);
-		if(prevResultsFile.exists()) {
-			PhonUIAction loadPrevResultsAct = new PhonUIAction(this, "onLoadPreviousResults", prevResultsFile);
-			loadPrevResultsAct.putValue(PhonUIAction.NAME, "Load previous results");
-			loadPrevResultsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Load result from previous diarization execution");
+		if(isShowingDiarizationResults()) {
+			final PhonUIAction addDiarizationResultsAct = new PhonUIAction(this, "onAddAllResults");
+			addDiarizationResultsAct.putValue(PhonUIAction.NAME, "Add diarization results to session");
+			addDiarizationResultsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Add all diarization results to session and close results");
+			builder.addItem(".", addDiarizationResultsAct);
 
-			builder.addItem(".", loadPrevResultsAct);
-			builder.addSeparator(".", "load_previous");
+			final PhonUIAction closeDiarizationResultsAct = new PhonUIAction(this, "onClearResults");
+			closeDiarizationResultsAct.putValue(PhonUIAction.NAME, "Close diarization results");
+			closeDiarizationResultsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Close diarization results with modifying session");
+			builder.addItem(".", closeDiarizationResultsAct);
+		} else {
+			DiarizationResultsManager resultsManager = new DiarizationResultsManager(getParentView().getEditor().getProject(),
+					getParentView().getEditor().getSession());
+			File prevResultsFile = resultsManager.diarizationResultsFile(false);
+			if (prevResultsFile.exists()) {
+				PhonUIAction loadPrevResultsAct = new PhonUIAction(this, "onLoadPreviousResults", prevResultsFile);
+				loadPrevResultsAct.putValue(PhonUIAction.NAME, "Load previous results");
+				loadPrevResultsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Load result from previous diarization execution");
+
+				builder.addItem(".", loadPrevResultsAct);
+				builder.addSeparator(".", "load_previous");
+			}
+
+			if (getParentView().getEditor().getMediaModel().isSessionAudioAvailable()) {
+				PhonUIAction diarizationWizardAct = new PhonUIAction(this, "onDiarizationWizard");
+				diarizationWizardAct.putValue(PhonUIAction.NAME, "Diarization wizard...");
+				diarizationWizardAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Start diarization wizard");
+				builder.addItem(".", diarizationWizardAct);
+			} else {
+				JMenuItem noAudioItem = new JMenuItem("<html><em>Session audio file not available</em></html>");
+				noAudioItem.setEnabled(false);
+				builder.addItem(".", noAudioItem);
+			}
 		}
+	}
 
-		PhonUIAction diarizationWizardAct = new PhonUIAction(this, "onDiarizationWizard");
-		diarizationWizardAct.putValue(PhonUIAction.NAME, "Diarization wizard...");
-		diarizationWizardAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Start diarization wizard");
-		builder.addItem(".", diarizationWizardAct);
+	private void setupParticipantAssigmentMenu(Participant diarizationParticipant, MenuBuilder builder) {
+		if(getParentView().getEditor().getSession().getParticipantCount() > 0) {
+			builder.addItem(".", "<html><em>Session Participants</em></html>").setEnabled(false);
+			for (Participant sessionParticipant : getParentView().getEditor().getSession().getParticipants()) {
+
+				final PhonUIAction assignToSpeakerAct = new PhonUIAction(this, "onAssignToSpeaker",
+						new Tuple<>(diarizationParticipant, sessionParticipant));
+				assignToSpeakerAct.putValue(PhonUIAction.NAME, sessionParticipant.toString());
+				assignToSpeakerAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Assign all record to " + sessionParticipant);
+				builder.addItem(".", assignToSpeakerAct);
+			}
+			builder.addSeparator(".", "session_participants");
+		}
+		builder.addItem(".", "<html><em>Diarization Participants</em></html>").setEnabled(false);
+		for(Participant dp:getRecordGrid().getSession().getParticipants()) {
+			int sidx = getParentView().getEditor().getSession().getParticipantIndex(dp);
+			if(sidx < 0) {
+				final PhonUIAction assignToSpeakerAct = new PhonUIAction(this, "onAssignToSpeaker",
+						new Tuple<>(diarizationParticipant, dp));
+				assignToSpeakerAct.putValue(PhonUIAction.NAME, dp.toString());
+				assignToSpeakerAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Assign all record to " + dp);
+				builder.addItem(".", assignToSpeakerAct);
+			}
+		}
 	}
 
 	/**
@@ -423,8 +448,11 @@ public class DiarizationTimelineTier extends TimelineTier {
 		getParentView().getEditor().getUndoSupport().beginUpdate();
 		
 		for(Participant p:recordGrid.getSession().getParticipants()) {
-			final AddParticipantEdit addSpeakerEdit = new AddParticipantEdit(getParentView().getEditor(), p);
-			getParentView().getEditor().getUndoSupport().postEdit(addSpeakerEdit);
+			int idx = getParentView().getEditor().getSession().getParticipantIndex(p);
+			if(idx < 0) {
+				final AddParticipantEdit addSpeakerEdit = new AddParticipantEdit(getParentView().getEditor(), p);
+				getParentView().getEditor().getUndoSupport().postEdit(addSpeakerEdit);
+			}
 		}
 		
 		int editIdx = 0;
@@ -435,13 +463,36 @@ public class DiarizationTimelineTier extends TimelineTier {
 		}
 		
 		getParentView().getEditor().getUndoSupport().endUpdate();
-		onClearResults(pae);
+		clearDiarizationResults();
 	}
 	
 	public void onClearResults(PhonActionEvent pae) {
-		SessionFactory factory = SessionFactory.newFactory();
-		setSession(factory.createSession());
-		updateToolbarButtons();
+		clearDiarizationResults();
+	}
+
+	public void onAssignToSpeaker(PhonActionEvent pae) {
+		Tuple<Participant, Participant> tuple = (Tuple<Participant, Participant>)pae.getData();
+		Participant diarizationParticipant = tuple.getObj1();
+		Participant sessionParticipant = tuple.getObj2();
+
+		// remove diarization participant
+		int idx = getRecordGrid().getSession().getParticipantIndex(diarizationParticipant);
+		getRecordGrid().getSession().removeParticipant(diarizationParticipant);
+
+		int spkIdx = getRecordGrid().getSession().getParticipantIndex(sessionParticipant);
+		if(spkIdx < 0) {
+			// replace diarization participant with session participant
+			getRecordGrid().getSession().addParticipant(idx, sessionParticipant);
+		}
+
+		// reassign records
+		getRecordGrid().getSession().getRecords().forEach( (r) -> {
+			if(r.getSpeaker() == diarizationParticipant) r.setSpeaker(sessionParticipant); });
+
+		// update record grid participant list
+		var speakerList =
+				StreamSupport.stream(getRecordGrid().getSession().getParticipants().spliterator(), false).collect(Collectors.toList());
+		getRecordGrid().setSpeakers(speakerList);
 	}
 
 	public void onDiarizationWizard(PhonActionEvent pae) {

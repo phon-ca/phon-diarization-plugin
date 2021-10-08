@@ -736,7 +736,6 @@ public class SpkDiarization extends Thread {
 		if (parameter.getParameterDiarization().isLastStepOnly()) {
 			String key = "l=" + lMin + " h=" + hMin + " d=" + dMin;
 			ClusterSetResultList showResult = new ClusterSetResultList(cMin, cMax, mult);
-			;
 			if (parameter.getParameterDiarization().isCEClustering() == false) {
 				logger.warning(" nothing to do isCEClustering == false");
 			} else {
@@ -770,7 +769,6 @@ public class SpkDiarization extends Thread {
 
 					String key = "l=" + l + " h=" + h + " d=" + d;
 					ClusterSetResultList showResult = new ClusterSetResultList(cMin, cMax, mult);
-					;
 					if (parameter.getParameterDiarization().isCEClustering() == true) {
 						clusterSetResult = speakerClustering(referenceClusterSet, uemClusterSet, key, "ce", clustersGender, featureSet, parameter, showResult);
 					} else {
@@ -782,7 +780,6 @@ public class SpkDiarization extends Thread {
 
 		String key = "l=" + lMax + " h=" + hMax + " d=" + dMax;
 		ClusterSetResultList showResult = new ClusterSetResultList(cMin, cMax, mult);
-		;
 		parameter.getParameterClustering().setMinimumOfCluster(2);
 		clusterSetResult = speakerClustering(referenceClusterSet, uemClusterSet, key, "ce", clusterSetResult, featureSet, parameter, showResult);
 
@@ -826,12 +823,8 @@ public class SpkDiarization extends Thread {
 				if (parameter.getParameterDiarization().getSystem() == ParameterBNDiarization.SystemString[1]) {
 					parameter.getParameterSegmentationSplit().setSegmentMaximumLength((10 * parameter.getParameterSegmentationInputFile().getRate()));
 				}
-// if (parameter.getParameterDiarization().getTuning() > 0) {
 				logger.info("Diarization tuning");
 				diarization.ester2DiarizationCorpus(parameter);
-				/*
-				 * } else { logger.info("Diarization BN"); diarization.ester2Version(parameter); }
-				 */
 			}
 		} catch (DiarizationException e) {
 			logger.log(Level.SEVERE, "Diarization error", e);

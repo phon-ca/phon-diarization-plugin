@@ -4,7 +4,7 @@ import ca.phon.session.Session;
 
 import java.util.concurrent.Future;
 
-public interface DiarizationResult {
+public interface DiarizationFutureResult {
 
 	/**
 	 * Get session future object
