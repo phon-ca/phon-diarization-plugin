@@ -4,6 +4,9 @@ import ca.phon.session.Session;
 
 import java.util.concurrent.Future;
 
+/**
+ * A cancel-able diarization result {@link Future}
+ */
 public interface DiarizationFutureResult {
 
 	/**

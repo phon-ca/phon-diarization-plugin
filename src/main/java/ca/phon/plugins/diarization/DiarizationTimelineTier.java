@@ -11,16 +11,18 @@ import java.util.*;
 import java.util.List;
 import java.util.stream.*;
 
+import javax.print.attribute.standard.Media;
 import javax.swing.*;
 import javax.swing.undo.*;
 
+import ca.phon.app.session.editor.undo.*;
 import ca.phon.app.session.editor.view.timeline.*;
 import ca.phon.session.io.*;
+import ca.phon.ui.CommonModuleFrame;
+import ca.phon.ui.nativedialogs.*;
 import ca.phon.util.Tuple;
 
 import ca.phon.app.log.LogUtil;
-import ca.phon.app.session.editor.undo.AddParticipantEdit;
-import ca.phon.app.session.editor.undo.AddRecordEdit;
 import ca.phon.app.session.editor.view.timeline.RecordGrid.GhostMarker;
 import ca.phon.media.TimeUIModel;
 import ca.phon.media.TimeUIModel.Marker;
@@ -41,9 +43,14 @@ public class DiarizationTimelineTier extends TimelineTier {
 	private JToolBar toolbar;
 
 	private JButton diarizeButton;
+
+	private final static String SEPARATOR_LABEL = "Diarization Results";
+	private TimelineTitledSeparator separator;
 	
 	private RecordGrid recordGrid;
 	private TimeUIModel.Interval currentRecordInterval = null;
+
+	private boolean hasUnsavedChanges = false;
 
 	public DiarizationTimelineTier(TimelineView parent) {
 		super(parent);
@@ -62,7 +69,7 @@ public class DiarizationTimelineTier extends TimelineTier {
 			JMenu assignMenu = builder.addMenu(".", "Assign records to participant");
 			setupParticipantAssigmentMenu(p, new MenuBuilder(assignMenu));
 		});
-		
+
 		toolbar = getParentView().getToolbar();
 		
 		final PhonUIAction diarizeAct = new PhonUIAction(this, "showDiarizationMenu");
@@ -74,7 +81,13 @@ public class DiarizationTimelineTier extends TimelineTier {
 		toolbar.add(diarizeButton);
 		
 		setLayout(new BorderLayout());
-		add(new TimelineTitledSeparator(getTimeModel(), "Diarization Results", null, SwingConstants.LEFT, Color.black, 1), BorderLayout.NORTH);
+		separator = new TimelineTitledSeparator(getTimeModel(), SEPARATOR_LABEL, null, SwingConstants.LEFT, Color.black, 1);
+		addPropertyChangeListener("hasUnsavedChanges", (e) -> {
+			separator.setTitle(SEPARATOR_LABEL + (this.hasUnsavedChanges() ? "*" : ""));
+			separator.repaint();
+		});
+
+		add(separator, BorderLayout.NORTH);
 		add(recordGrid, BorderLayout.CENTER);
 
 		setVisible(false);
@@ -234,8 +247,7 @@ public class DiarizationTimelineTier extends TimelineTier {
 
 		recordGrid.setCurrentRecord(r);
 		getParentView().getRecordTier().setupRecord(null);
-		
-		mouseListener.waitForRecordChange = false;
+
 	}
 
 	public boolean hasDiarizationResults() {
@@ -243,6 +255,7 @@ public class DiarizationTimelineTier extends TimelineTier {
 	}
 	
 	public void setSession(Session session) {
+		setHasUnsavedChanges(false);
 		recordGrid.setSession(session);
 
 		recordGrid.clearSpeakers();
@@ -273,8 +286,23 @@ public class DiarizationTimelineTier extends TimelineTier {
 		setSession(SessionFactory.newFactory().createSession());
 	}
 
+	private void fireDiarizationResultEdit(UndoableEdit edit) {
+		setHasUnsavedChanges(true);
+		getParentView().getEditor().getUndoSupport().postEdit(edit);
+	}
+
 	public ListSelectionModel getSelectionModel() {
 		return recordGrid.getSelectionModel();
+	}
+
+	public boolean hasUnsavedChanges() {
+		return this.hasUnsavedChanges;
+	}
+
+	public void setHasUnsavedChanges(boolean hasUnsavedChanges) {
+		boolean oldVal = this.hasUnsavedChanges;
+		this.hasUnsavedChanges = hasUnsavedChanges;
+		firePropertyChange("hasUnsavedChanges", oldVal, hasUnsavedChanges);
 	}
 
 	/**
@@ -362,6 +390,13 @@ public class DiarizationTimelineTier extends TimelineTier {
 			addDiarizationResultsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Add all diarization results to session and close results");
 			builder.addItem(".", addDiarizationResultsAct);
 
+			builder.addSeparator(".", "dia_sep");
+
+			final PhonUIAction updateResultsAct = new PhonUIAction(this, "onUpdateResults");
+			updateResultsAct.putValue(PhonUIAction.NAME, "Save changes to diarization results");
+			updateResultsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Update diarization results on disk");
+			builder.addItem(".", updateResultsAct).setEnabled(this.hasUnsavedChanges);
+
 			final PhonUIAction closeDiarizationResultsAct = new PhonUIAction(this, "onClearResults");
 			closeDiarizationResultsAct.putValue(PhonUIAction.NAME, "Close diarization results");
 			closeDiarizationResultsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Close diarization results with modifying session");
@@ -434,6 +469,32 @@ public class DiarizationTimelineTier extends TimelineTier {
 		try {
 			if (reader != null) {
 				Session s = reader.readSession(new FileInputStream(f));
+
+				// fix participants if session participants are found in diarization results
+				Iterator<Participant> diaParticipantItr =  s.getParticipants().iterator();
+				while(diaParticipantItr.hasNext()) {
+					Participant diaParticipant = diaParticipantItr.next();
+					Participant sameSpeaker = null;
+					for(Participant sessionParticipant:getParentView().getEditor().getSession().getParticipants()) {
+						if(diaParticipant.getId().equals(sessionParticipant.getId())) {
+							if( (diaParticipant.getName() == null && sessionParticipant.getName() == null)
+								|| (diaParticipant.getName() != null && diaParticipant.getName().equals(sessionParticipant.getName()))) {
+								sameSpeaker = sessionParticipant;
+								break;
+							}
+						}
+					}
+					if(sameSpeaker != null) {
+						int speakerIdx = s.getParticipantIndex(diaParticipant);
+						diaParticipantItr.remove();
+						s.addParticipant(speakerIdx, sameSpeaker);
+						for(Record r:s.getRecords()) {
+							if(r.getSpeaker() == diaParticipant)
+								r.setSpeaker(sameSpeaker);
+						}
+					}
+				}
+
 				setSession(s);
 			}
 		} catch (IOException e) {
@@ -465,8 +526,8 @@ public class DiarizationTimelineTier extends TimelineTier {
 		getParentView().getEditor().getUndoSupport().endUpdate();
 		clearDiarizationResults();
 	}
-	
-	public void onClearResults(PhonActionEvent pae) {
+
+	public void onUpdateResults(PhonActionEvent pae) {
 		// update diarization results on disk
 		DiarizationResultsManager manager = new DiarizationResultsManager(getParentView().getEditor().getProject(),
 				getParentView().getEditor().getSession());
@@ -475,6 +536,29 @@ public class DiarizationTimelineTier extends TimelineTier {
 		} catch (IOException e) {
 			Toolkit.getDefaultToolkit().beep();
 			LogUtil.severe(e);
+		}
+
+		this.hasUnsavedChanges = false;
+		firePropertyChange("hasUnsavedChanges", true, false);
+	}
+	
+	public void onClearResults(PhonActionEvent pae) {
+		if(this.hasUnsavedChanges) {
+			final MessageDialogProperties props = new MessageDialogProperties();
+			props.setParentWindow(CommonModuleFrame.getCurrentFrame());
+			props.setRunAsync(false);
+			props.setOptions(MessageDialogProperties.yesNoCancelOptions);
+			props.setTitle("Save changes");
+			props.setHeader("Save changes");
+			props.setMessage("Save changes to diarization results on disk?");
+			props.setDefaultOption("Yes");
+
+			int selection = NativeDialogs.showMessageDialog(props);
+			if(selection == 0) {
+				onUpdateResults(pae);
+			} else if(selection == 2) {
+				return;
+			}
 		}
 		clearDiarizationResults();
 	}
@@ -501,6 +585,7 @@ public class DiarizationTimelineTier extends TimelineTier {
 		// update record grid participant list
 		var speakerList =
 				StreamSupport.stream(getRecordGrid().getSession().getParticipants().spliterator(), false).collect(Collectors.toList());
+		Session s = getRecordGrid().getSession();
 		getRecordGrid().setSpeakers(speakerList);
 	}
 
@@ -572,24 +657,106 @@ public class DiarizationTimelineTier extends TimelineTier {
 				}
 
 				UndoableDiarizationRecordIntervalChange edit = new UndoableDiarizationRecordIntervalChange(recordGrid.getCurrentRecord(), newSegment);
-				getParentView().getEditor().getUndoSupport().postEdit(edit);
+				fireDiarizationResultEdit(edit);
 				
 				recordGrid.repaint(recordGrid.getVisibleRect());
 			}
 		}
 
 	}
-	
+
+	/* Dragging */
+	private class DragData {
+		/*
+		 * Participant being dragged or Participant.ALL if
+		 * multiple participants are being dragged
+		 */
+		Participant participant;
+
+		int draggedRecord = -1;
+		float mouseDragOffset = -1.0f;
+
+		//Map<Integer, TierEdit<MediaSegment>> tierEdits = new LinkedHashMap<>();
+		Map<Integer, MediaSegment> editSegments = new LinkedHashMap<>();
+		Map<Integer, MediaSegment> originalSegments = new LinkedHashMap<>();
+
+		boolean isFirstChange = true;
+	}
+	private final DiarizationTimelineTier.DragData dragData = new DiarizationTimelineTier.DragData();
+
+	private void beginRecordDrag(int recordIndex) {
+		Toolkit.getDefaultToolkit().addAWTEventListener(cancelDragListener, AWTEvent.KEY_EVENT_MASK);
+
+		dragData.draggedRecord = recordIndex;
+		Set<Participant> participants = new HashSet<>();
+
+		dragData.originalSegments.clear();
+		dragData.editSegments.clear();
+		for(int selectedRecord:getSelectionModel().getSelectedIndices()) {
+			Record r = getRecordGrid().getSession().getRecord(selectedRecord);
+			participants.add(r.getSpeaker());
+
+			MediaSegment recordSeg = r.getSegment().getGroup(0);
+			MediaSegment origSeg = SessionFactory.newFactory().createMediaSegment();
+			origSeg.setStartValue(recordSeg.getStartValue());
+			origSeg.setEndValue(recordSeg.getEndValue());
+			dragData.originalSegments.put(selectedRecord, origSeg);
+
+			MediaSegment editSegment = SessionFactory.newFactory().createMediaSegment();
+			editSegment.setStartValue(origSeg.getStartValue());
+			editSegment.setEndValue(origSeg.getEndValue());
+			dragData.editSegments.put(selectedRecord, editSegment);
+		}
+		dragData.participant = (participants.size() == 1 ? participants.iterator().next() : Participant.ALL);
+		currentRecordInterval.setValueAdjusting(true);
+
+		dragData.isFirstChange = true;
+	}
+
+	private void endRecordDrag() {
+		Toolkit.getDefaultToolkit().removeAWTEventListener(cancelDragListener);
+		if (currentRecordInterval != null)
+			currentRecordInterval.setValueAdjusting(false);
+		dragData.draggedRecord = -1;
+	}
+
+	private void cancelRecordDrag() {
+		for(int recordIndex:getSelectionModel().getSelectedIndices()) {
+			Record r = getRecordGrid().getSession().getRecord(recordIndex);
+			if(dragData.participant != Participant.ALL)
+				r.setSpeaker(dragData.participant);
+			MediaSegment origSegment = dragData.originalSegments.get(recordIndex);
+			if (currentRecordInterval != null && getRecordGrid().getCurrentRecordIndex() == recordIndex) {
+				currentRecordInterval.getStartMarker().setTime(origSegment.getStartValue()/1000.0f);
+				currentRecordInterval.getEndMarker().setTime(origSegment.getEndValue()/1000.0f);
+			} else {
+				MediaSegment recordSeg = r.getSegment().getGroup(0);
+				recordSeg.setStartValue(origSegment.getStartValue());
+				recordSeg.setEndValue(origSegment.getEndValue());
+			}
+		}
+		dragData.mouseDragOffset = -1.0f;
+		endRecordDrag();
+	}
+
+	private final AWTEventListener cancelDragListener = new AWTEventListener() {
+
+		@Override
+		public void eventDispatched(AWTEvent event) {
+			if(event instanceof KeyEvent) {
+				KeyEvent ke = (KeyEvent)event;
+				if(ke.getID() == KeyEvent.KEY_PRESSED &&
+						ke.getKeyChar() == KeyEvent.VK_ESCAPE) {
+					cancelRecordDrag();
+					((KeyEvent) event).consume();
+				}
+			}
+		}
+	};
+
 	private final RecordMouseListener mouseListener = new RecordMouseListener();
 	
 	private class RecordMouseListener extends RecordGridMouseAdapter {
-
-		private int currentDraggedRecord = -1;
-
-		// offset (in sec) from left of interval where we are starting the drag
-		private float mouseDragOffset = 0.0f;
-		
-		volatile boolean waitForRecordChange = false;
 
 		@Override
 		public void recordClicked(int recordIndex, MouseEvent me) {
@@ -602,80 +769,156 @@ public class DiarizationTimelineTier extends TimelineTier {
 			
 			setupRecord(r);
 			
-			mouseDragOffset = getTimeModel().timeAtX(me.getX()) - seg.getStartValue() / 1000.0f;
+			dragData.mouseDragOffset = getTimeModel().timeAtX(me.getX()) - seg.getStartValue() / 1000.0f;
 		}
 
 		@Override
 		public void recordReleased(int recordIndex, MouseEvent me) {
-			if (currentDraggedRecord >= 0) {
-				currentDraggedRecord = -1;
-				if (currentRecordInterval != null)
-					currentRecordInterval.setValueAdjusting(false);
-			}
+			endRecordDrag();
 		}
 
 		@Override
 		public void recordDragged(int recordIndex, MouseEvent me) {
-//			if (getParentView().getEditor().getCurrentRecordIndex() != recordIndex) {
-//				getParentView().getEditor().setCurrentRecordIndex(recordIndex);
-//				waitForRecordChange = true;
-//				return;
-//			} else if(waitForRecordChange) {
-//				return;
-//			} else {
+			if (!getSelectionModel().isSelectedIndex(recordIndex)) {
+				if((me.getModifiersEx() & Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()) == Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()) {
+					getSelectionModel().addSelectionInterval(recordIndex, recordIndex);
+				} else {
+					getSelectionModel().setSelectionInterval(recordIndex, recordIndex);
+				}
+				return;
+			} else {
 				// shouldn't happen
 				if (currentRecordInterval == null)
 					return;
+			}
 
-				if (currentDraggedRecord != recordIndex) {
-					// don't adjust an already changing interval
-					if (currentRecordInterval.isValueAdjusting())
-						return;
-					currentDraggedRecord = recordIndex;
-					currentRecordInterval.setValueAdjusting(true);
+			if (dragData.draggedRecord != recordIndex) {
+				// don't adjust an already changing interval
+				if (currentRecordInterval.isValueAdjusting())
+					return;
+
+				if(dragData.mouseDragOffset < 0) return;
+
+				beginRecordDrag(recordIndex);
+			}
+
+			// scroll to mouse position if outside of visible rect
+			Rectangle visibleRect = recordGrid.getVisibleRect();
+			if (me.getX() < visibleRect.getX()) {
+				visibleRect.translate(-10, 0);
+				getParentView().scrollRectToVisible(visibleRect);
+			} else if (me.getX() > visibleRect.getMaxX()) {
+				visibleRect.translate(10, 0);
+				getParentView().scrollRectToVisible(visibleRect);
+			}
+
+			Participant mouseOverSpeaker = recordGrid.getUI().getSpeakerAtPoint(me.getPoint());
+			if (dragData.participant != Participant.ALL
+					&& mouseOverSpeaker != null
+					&& mouseOverSpeaker != getRecordGrid().getCurrentRecord().getSpeaker()) {
+				for(int rIdx:getSelectionModel().getSelectedIndices()) {
+					UndoableDiarizationRecordSpeakerChange speakerChange = new UndoableDiarizationRecordSpeakerChange(getRecordGrid().getSession().getRecord(rIdx), mouseOverSpeaker);
+					fireDiarizationResultEdit(speakerChange);
 				}
+			}
 
-				// scroll to mouse position if outside of visible rect
-				Rectangle visibleRect = recordGrid.getVisibleRect();
-				if (me.getX() < visibleRect.getX()) {
-					visibleRect.translate(-10, 0);
-					getParentView().scrollRectToVisible(visibleRect);
-				} else if (me.getX() > visibleRect.getMaxX()) {
-					visibleRect.translate(10, 0);
-					getParentView().scrollRectToVisible(visibleRect);
-				}
+			Record dragRecord = getRecordGrid().getSession().getRecord(dragData.draggedRecord);
+			MediaSegment dragSeg = dragRecord.getSegment().getGroup(0);
 
-				Participant mouseOverSpeaker = recordGrid.getUI().getSpeakerAtPoint(me.getPoint());
-				if (mouseOverSpeaker != null
-						&& mouseOverSpeaker != recordGrid.getCurrentRecord().getSpeaker()) {
-					UndoableDiarizationRecordSpeakerChange speakerChange = new UndoableDiarizationRecordSpeakerChange(recordGrid.getCurrentRecord(), mouseOverSpeaker);
-					getParentView().getEditor().getUndoSupport().postEdit(speakerChange);
-				}
+			float startTime = dragSeg.getStartValue() / 1000.0f;
+			float oldOffsetTime = startTime + dragData.mouseDragOffset;
+			float newOffsetTime = recordGrid.timeAtX(me.getX());
+			int direction = (oldOffsetTime < newOffsetTime ? 1 : -1);
+			float delta = (direction < 0 ? oldOffsetTime - newOffsetTime : newOffsetTime - oldOffsetTime);
 
-				float startTime = currentRecordInterval.getStartMarker().getTime();
-				float endTime = currentRecordInterval.getEndMarker().getTime();
-				float intervalDuration = endTime - startTime;
+			for(int rIdx:getSelectionModel().getSelectedIndices()) {
+				Record selectedRecord = getRecordGrid().getSession().getRecord(rIdx);
+				MediaSegment seg = selectedRecord.getSegment().getGroup(0);
 
-				float oldOffsetTime = currentRecordInterval.getStartMarker().getTime() + mouseDragOffset;
-				float newOffsetTime = recordGrid.timeAtX(me.getX());
-				int direction = (oldOffsetTime < newOffsetTime ? 1 : -1);
+				float st = (rIdx == getRecordGrid().getCurrentRecordIndex() ?
+						currentRecordInterval.getStartMarker().getTime() : seg.getStartValue() / 1000.0f);
+				float et = (rIdx == getRecordGrid().getCurrentRecordIndex() ?
+						currentRecordInterval.getEndMarker().getTime() : seg.getEndValue() / 1000.0f);
+				float intervalDuration = et - st;
 
 				float newStartTime = 0.0f;
 				float newEndTime = 0.0f;
 
 				if (direction < 0) {
-					newStartTime = Math.max(newOffsetTime - mouseDragOffset, getTimeModel().getStartTime());
+					newStartTime = Math.max(st - delta, getTimeModel().getStartTime());
 					newEndTime = newStartTime + intervalDuration;
 				} else {
-					newEndTime = Math.min(newOffsetTime + (intervalDuration - mouseDragOffset),
-							getTimeModel().getEndTime());
+					newEndTime = Math.min(et + delta, getTimeModel().getEndTime());
 					newStartTime = newEndTime - intervalDuration;
 				}
+				if(rIdx == getRecordGrid().getCurrentRecordIndex()) {
+					currentRecordInterval.getStartMarker().setTime(newStartTime);
+					currentRecordInterval.getEndMarker().setTime(newEndTime);
+				} else {
+					MediaSegment editSeg = dragData.editSegments.get(rIdx);
+					editSeg.setStartValue(newStartTime * 1000.0f);
+					editSeg.setEndValue(newEndTime * 1000.0f);
 
-				currentRecordInterval.getStartMarker().setTime(newStartTime);
-				currentRecordInterval.getEndMarker().setTime(newEndTime);
+					if(dragData.isFirstChange) {
+						UndoableDiarizationRecordIntervalChange edit = new UndoableDiarizationRecordIntervalChange(selectedRecord, editSeg);
+						fireDiarizationResultEdit(edit);
+					}
+				}
 			}
-//		}
+			dragData.isFirstChange = false;
+//			for(int selectedRecordIdx:recordGrid.getSelectionModel().getSelectedIndices()) {
+//				if(recordGrid.getCurrentRecordIndex() == selectedRecordIdx) {
+//					float startTime = currentRecordInterval.getStartMarker().getTime();
+//					float endTime = currentRecordInterval.getEndMarker().getTime();
+//					float intervalDuration = endTime - startTime;
+//
+//					float oldOffsetTime = currentRecordInterval.getStartMarker().getTime() + mouseDragOffset;
+//					float newOffsetTime = recordGrid.timeAtX(me.getX());
+//					int direction = (oldOffsetTime < newOffsetTime ? 1 : -1);
+//
+//					float newStartTime = 0.0f;
+//					float newEndTime = 0.0f;
+//
+//					if (direction < 0) {
+//						newStartTime = Math.max(newOffsetTime - mouseDragOffset, getTimeModel().getStartTime());
+//						newEndTime = newStartTime + intervalDuration;
+//					} else {
+//						newEndTime = Math.min(newOffsetTime + (intervalDuration - mouseDragOffset),
+//								getTimeModel().getEndTime());
+//						newStartTime = newEndTime - intervalDuration;
+//					}
+//
+//					currentRecordInterval.getStartMarker().setTime(newStartTime);
+//					currentRecordInterval.getEndMarker().setTime(newEndTime);
+//				} else {
+//					Record r = recordGrid.getSession().getRecord(selectedRecordIdx);
+//					MediaSegment seg = r.getSegment().getGroup(0);
+//					float segLength = (seg.getEndValue() - seg.getStartValue()) / 1000.0f;
+//
+//					float oldOffsetTime = seg.getStartValue() / 1000.0f + mouseDragOffset;
+//					float newOffsetTime = recordGrid.timeAtX(me.getX());
+//					float delta = Math.abs(newOffsetTime - oldOffsetTime);
+//					int direction = (oldOffsetTime < newOffsetTime ? 1 : -1);
+//
+//					float newStartTime = 0.0f;
+//					float newEndTime = 0.0f;
+//
+//					if(direction < 0) {
+//						newStartTime = Math.max(seg.getStartValue() / 1000.0f - delta, getTimeModel().getStartTime());
+//						newEndTime = newStartTime + segLength;
+//					} else {
+//						newEndTime = Math.min(seg.getEndValue() / 1000.0f + delta, getTimeModel().getEndTime());
+//						newStartTime = newEndTime - segLength;
+//					}
+//
+//					MediaSegment newSeg = SessionFactory.newFactory().createMediaSegment();
+//					newSeg.setStartValue(newStartTime * 1000.0f);
+//					newSeg.setEndValue(newEndTime * 1000.0f);
+//					UndoableDiarizationRecordIntervalChange edit = new UndoableDiarizationRecordIntervalChange(r, newSeg);
+//					fireDiarizationResultEdit(edit);
+//				}
+//			}
+		}
 
 	};
 
@@ -708,7 +951,7 @@ public class DiarizationTimelineTier extends TimelineTier {
 			if(oldSegment == null) throw new CannotUndoException();
 			record.getSegment().setGroup(0, oldSegment);
 
-			repaint();
+			update();
 		}
 
 		@Override
@@ -716,7 +959,17 @@ public class DiarizationTimelineTier extends TimelineTier {
 			if(newSegment == null) throw new CannotUndoException();
 			record.getSegment().setGroup(0, newSegment);
 
-			repaint();
+			update();
+		}
+
+		private void update() {
+			// update if recordGrid.currentRecord = record
+			if(this.record == recordGrid.getCurrentRecord()) {
+				// update interval
+				MediaSegment seg = this.record.getSegment().getGroup(0);
+				currentRecordInterval.getStartMarker().setTime(seg.getStartValue()/1000.0f);
+				currentRecordInterval.getEndMarker().setTime(seg.getEndValue()/1000.0f);
+			}
 		}
 
 		@Override
@@ -740,6 +993,9 @@ public class DiarizationTimelineTier extends TimelineTier {
 			newSpeaker = speaker;
 			oldSpeaker = r.getSpeaker();
 			r.setSpeaker(speaker);
+
+			if(r == getRecordGrid().getCurrentRecord())
+				repaint();
 		}
 
 		@Override
