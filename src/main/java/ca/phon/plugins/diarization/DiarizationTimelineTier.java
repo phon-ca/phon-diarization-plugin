@@ -12,11 +12,11 @@ import java.util.List;
 import java.util.stream.*;
 
 import javax.swing.*;
+import javax.swing.undo.*;
 
 import ca.phon.app.session.editor.view.timeline.*;
 import ca.phon.session.io.*;
 import ca.phon.util.Tuple;
-import org.jdesktop.swingx.JXBusyLabel;
 
 import ca.phon.app.log.LogUtil;
 import ca.phon.app.session.editor.undo.AddParticipantEdit;
@@ -467,6 +467,15 @@ public class DiarizationTimelineTier extends TimelineTier {
 	}
 	
 	public void onClearResults(PhonActionEvent pae) {
+		// update diarization results on disk
+		DiarizationResultsManager manager = new DiarizationResultsManager(getParentView().getEditor().getProject(),
+				getParentView().getEditor().getSession());
+		try {
+			manager.saveDiarizationResults(getRecordGrid().getSession());
+		} catch (IOException e) {
+			Toolkit.getDefaultToolkit().beep();
+			LogUtil.severe(e);
+		}
 		clearDiarizationResults();
 	}
 
@@ -530,8 +539,6 @@ public class DiarizationTimelineTier extends TimelineTier {
 	
 	private class RecordIntervalListener implements PropertyChangeListener {
 
-//		private boolean isFirstChange = true;
-
 		@Override
 		public void propertyChange(PropertyChangeEvent evt) {
 			Record r = recordGrid.getCurrentRecord();
@@ -548,13 +555,11 @@ public class DiarizationTimelineTier extends TimelineTier {
 				recordGrid.setSplitModeAccept(false);
 				recordGrid.setSplitMode(false);
 				
-//				if((boolean)evt.getNewValue()) {
-//					isFirstChange = true;
-//					getParentView().getEditor().getUndoSupport().beginUpdate();
-//				} else {
-//					getParentView().getEditor().getUndoSupport().endUpdate();
-//					getParentView().getEditor().getEventManager().queueEvent(new EditorEvent(EditorEventType.TIER_CHANGED_EVT, TimelineRecordTier.class, SystemTierType.Segment.getName()));
-//				}
+				if((boolean)evt.getNewValue()) {
+					getParentView().getEditor().getUndoSupport().beginUpdate();
+				} else {
+					getParentView().getEditor().getUndoSupport().endUpdate();
+				}
 			} else if(evt.getPropertyName().endsWith("time")) {
 				MediaSegment newSegment = factory.createMediaSegment();
 				newSegment.setStartValue(segment.getStartValue());
@@ -565,13 +570,9 @@ public class DiarizationTimelineTier extends TimelineTier {
 				} else if(evt.getPropertyName().startsWith("endMarker")) {
 					newSegment.setEndValue((float)evt.getNewValue() * 1000.0f);
 				}
-				
-				recordGrid.getCurrentRecord().getSegment().setGroup(0, newSegment);
-				
-//				TierEdit<MediaSegment> segmentEdit = new TierEdit<MediaSegment>(getParentView().getEditor(), r.getSegment(), 0, newSegment);
-//				getParentView().getEditor().getUndoSupport().postEdit(segmentEdit);
-//				segmentEdit.setFireHardChangeOnUndo(isFirstChange);
-//				isFirstChange = false;
+
+				UndoableDiarizationRecordIntervalChange edit = new UndoableDiarizationRecordIntervalChange(recordGrid.getCurrentRecord(), newSegment);
+				getParentView().getEditor().getUndoSupport().postEdit(edit);
 				
 				recordGrid.repaint(recordGrid.getVisibleRect());
 			}
@@ -647,7 +648,8 @@ public class DiarizationTimelineTier extends TimelineTier {
 				Participant mouseOverSpeaker = recordGrid.getUI().getSpeakerAtPoint(me.getPoint());
 				if (mouseOverSpeaker != null
 						&& mouseOverSpeaker != recordGrid.getCurrentRecord().getSpeaker()) {
-					recordGrid.getCurrentRecord().setSpeaker(mouseOverSpeaker);
+					UndoableDiarizationRecordSpeakerChange speakerChange = new UndoableDiarizationRecordSpeakerChange(recordGrid.getCurrentRecord(), mouseOverSpeaker);
+					getParentView().getEditor().getUndoSupport().postEdit(speakerChange);
 				}
 
 				float startTime = currentRecordInterval.getStartMarker().getTime();
@@ -681,5 +683,86 @@ public class DiarizationTimelineTier extends TimelineTier {
 	public void onClose() {
 		onClearResults(new PhonActionEvent(new ActionEvent(this, -1, "close")));
 	}
-	
+
+	/**
+	 * Undo for record interval changes
+	 */
+	private class UndoableDiarizationRecordIntervalChange extends AbstractUndoableEdit {
+
+		private Record record;
+
+		private MediaSegment oldSegment;
+
+		private MediaSegment newSegment;
+
+		public UndoableDiarizationRecordIntervalChange(Record r, MediaSegment seg) {
+			super();
+			record = r;
+			newSegment = seg;
+			oldSegment = r.getSegment().getGroup(0);
+			r.getSegment().setGroup(0, seg);
+		}
+
+		@Override
+		public void undo() throws CannotUndoException {
+			if(oldSegment == null) throw new CannotUndoException();
+			record.getSegment().setGroup(0, oldSegment);
+
+			repaint();
+		}
+
+		@Override
+		public void redo() throws CannotRedoException {
+			if(newSegment == null) throw new CannotUndoException();
+			record.getSegment().setGroup(0, newSegment);
+
+			repaint();
+		}
+
+		@Override
+		public String getPresentationName() {
+			return "move diarization record";
+		}
+
+	}
+
+	private class UndoableDiarizationRecordSpeakerChange extends AbstractUndoableEdit {
+
+		private Record record;
+
+		private Participant oldSpeaker;
+
+		private Participant newSpeaker;
+
+		public UndoableDiarizationRecordSpeakerChange(Record r, Participant speaker) {
+			super();
+			record = r;
+			newSpeaker = speaker;
+			oldSpeaker = r.getSpeaker();
+			r.setSpeaker(speaker);
+		}
+
+		@Override
+		public void undo() throws CannotUndoException {
+			if(oldSpeaker == null) throw new CannotUndoException();
+			record.setSpeaker(oldSpeaker);
+
+			repaint();
+		}
+
+		@Override
+		public void redo() throws CannotRedoException {
+			if(newSpeaker == null) throw new CannotUndoException();
+			record.setSpeaker(newSpeaker);
+
+			repaint();
+		}
+
+		@Override
+		public String getPresentationName() {
+			return "change speaker of diarization record";
+		}
+
+	}
+
 }

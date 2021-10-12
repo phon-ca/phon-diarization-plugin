@@ -272,13 +272,14 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         @Override
         protected Session doInBackground() throws Exception {
             Session s = diarizationResult.getFutureSession().get();
+            s.setCorpus(diarizationTier.getParentView().getEditor().getSession().getCorpus());
             publish(s);
 
             Project p = diarizationTier.getParentView().getEditor().getProject();
             DiarizationResultsManager resultsManager = new DiarizationResultsManager(p, s);
 
             SwingUtilities.invokeLater(() -> {
-               bufferPanel.getLogBuffer().append("Saving diarization results to file " + resultsManager.diarizationResultsFile(false));
+               bufferPanel.getLogBuffer().append("Saving diarization results to file " + resultsManager.diarizationResultsFile(false) + "\n");
                bufferPanel.getLogBuffer().setCaretPosition(bufferPanel.getLogBuffer().getDocument().getLength());
             });
             try {
@@ -287,7 +288,7 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
                 Toolkit.getDefaultToolkit().beep();
                 LogUtil.severe(e);
                 SwingUtilities.invokeLater(() -> {
-                    bufferPanel.getLogBuffer().append("Error saving results " + e.getMessage());
+                    bufferPanel.getLogBuffer().append("Error saving results " + e.getMessage() + "\n");
                     bufferPanel.getLogBuffer().setCaretPosition(bufferPanel.getLogBuffer().getDocument().getLength());
                     bufferPanel.getLogBuffer().setForeground(Color.red);
                 });
