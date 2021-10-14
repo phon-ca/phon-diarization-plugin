@@ -11,11 +11,13 @@ import java.util.*;
 import java.util.List;
 import java.util.stream.*;
 
-import javax.print.attribute.standard.Media;
 import javax.swing.*;
 import javax.swing.undo.*;
 
+import ca.phon.app.session.editor.SegmentPlayback;
+import ca.phon.app.session.editor.actions.PlaySegmentAction;
 import ca.phon.app.session.editor.undo.*;
+import ca.phon.app.session.editor.view.media_player.MediaPlayerEditorView;
 import ca.phon.app.session.editor.view.timeline.*;
 import ca.phon.session.io.*;
 import ca.phon.ui.CommonModuleFrame;
@@ -54,8 +56,16 @@ public class DiarizationTimelineTier extends TimelineTier {
 
 	public DiarizationTimelineTier(TimelineView parent) {
 		super(parent);
-		
+
 		init();
+		setupRecordGridActions();
+
+		parent.addMenuHandler( (builder) -> {
+			JMenu diaMenu = builder.addMenu(".", "Diarization");
+			setupDiarizationMenu(new MenuBuilder(diaMenu));
+		});
+
+		recordGrid.addMouseListener(parent.getContextMenuListener());
 	}
 	
 	private void init() {
@@ -63,12 +73,15 @@ public class DiarizationTimelineTier extends TimelineTier {
 		recordGrid = new RecordGrid(getTimeModel(), factory.createSession());
 		recordGrid.setTiers(Collections.singletonList(SystemTierType.Segment.getName()));
 		recordGrid.addRecordGridMouseListener(mouseListener);
-
-		recordGrid.addParticipantMenuHandler((Participant p, MenuBuilder builder) -> {
-			builder.removeAll();
-			JMenu assignMenu = builder.addMenu(".", "Assign records to participant");
-			setupParticipantAssigmentMenu(p, new MenuBuilder(assignMenu));
+		getSelectionModel().addListSelectionListener( (e) -> {
+			int rIdx = getSelectionModel().getLeadSelectionIndex();
+			if(rIdx >= 0 && rIdx < getRecordGrid().getSession().getRecordCount()) {
+				Record r = getRecordGrid().getSession().getRecord(rIdx);
+				setupRecord(r);
+			}
 		});
+
+		recordGrid.addParticipantMenuHandler(this::setupParticipantMenu);
 
 		toolbar = getParentView().getToolbar();
 		
@@ -106,85 +119,62 @@ public class DiarizationTimelineTier extends TimelineTier {
 		final PhonUIAction escapeAction = new PhonUIAction(this, "onEscape", false);
 		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), escapeKey);
 		actionMap.put(escapeKey, escapeAction);
-//
-//		final String deleteRecordKey = "delete_record";
-//		final DeleteRecordsAction deleteRecordAction = new DeleteRecordsAction(getParentView());
-//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), deleteRecordKey);
-//		actionMap.put(deleteRecordKey, deleteRecordAction);
-//
-//		final String playSegmentKey = "play_segment";
-//		final PlaySegmentAction playSegmentAction = new PlaySegmentAction(getParentView().getEditor());
-//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), playSegmentKey);
-//		actionMap.put(playSegmentKey, playSegmentAction);
-//
-//		final String moveRight = "move_segments_right";
-//		final PhonUIAction moveRightAct = new PhonUIAction(this, "onMoveSegmentsRight", 5);
-//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_PERIOD, KeyEvent.CTRL_DOWN_MASK), moveRight);
-//		actionMap.put(moveRight, moveRightAct);
-//
-//		final String moveRightSlow = "move_segments_right_slow";
-//		final PhonUIAction moveRightSlowAct = new PhonUIAction(this, "onMoveSegmentsRight", 1);
-//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_PERIOD, KeyEvent.CTRL_DOWN_MASK | KeyEvent.SHIFT_DOWN_MASK), moveRightSlow);
-//		actionMap.put(moveRightSlow, moveRightSlowAct);
-//
-//		final String moveLeft = "move_segments_left";
-//		final PhonUIAction moveLeftAct = new PhonUIAction(this, "onMoveSegmentsLeft", 5);
-//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_COMMA, KeyEvent.CTRL_DOWN_MASK), moveLeft);
-//		actionMap.put(moveLeft, moveLeftAct);
-//
-//		final String moveLeftSlow = "move_segments_left_slow";
-//		final PhonUIAction moveLeftSlowAct = new PhonUIAction(this, "onMoveSegmentsLeft", 1);
-//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_COMMA, KeyEvent.CTRL_DOWN_MASK | KeyEvent.SHIFT_DOWN_MASK), moveLeftSlow);
-//		actionMap.put(moveLeftSlow, moveLeftSlowAct);
-//
-//		final String move = "move_segments";
-//		final PhonUIAction moveAct = new PhonUIAction(this, "onMoveSegments");
-//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_SLASH, KeyEvent.CTRL_DOWN_MASK), move);
-//		actionMap.put(move, moveAct);
-//
-//		final String growSegments = "grow_segments";
-//		final PhonUIAction growSegmentsAct = new PhonUIAction(this, "onGrowSegments", 3);
-//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_G, KeyEvent.CTRL_DOWN_MASK ), growSegments);
-//		actionMap.put(growSegments, growSegmentsAct);
-//
-//		final String growSegmentsSlow = "grow_segments_slow";
-//		final PhonUIAction growSegmentsSlowAct = new PhonUIAction(this, "onGrowSegments", 1);
-//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_G, KeyEvent.CTRL_DOWN_MASK | KeyEvent.SHIFT_DOWN_MASK), growSegmentsSlow);
-//		actionMap.put(growSegmentsSlow, growSegmentsSlowAct);
-//
-//		final String shrinkSegments = "shrink_segments";
-//		final PhonUIAction shrinkSegmentsAct = new PhonUIAction(this, "onShrinkSegments", 3);
-//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_K, KeyEvent.CTRL_DOWN_MASK ), shrinkSegments);
-//		actionMap.put(shrinkSegments, shrinkSegmentsAct);
-//
-//		final String shrinkSegmentsSlow = "shrink_segments_slow";
-//		final PhonUIAction shrinkSegmentsSlowAct = new PhonUIAction(this, "onShrinkSegments", 1);
-//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_K, KeyEvent.CTRL_DOWN_MASK |KeyEvent.SHIFT_DOWN_MASK), shrinkSegmentsSlow);
-//		actionMap.put(shrinkSegmentsSlow, shrinkSegmentsSlowAct);
-//
-//		final PhonUIAction copyRecordsAct = new PhonUIAction(this, "copy");
-//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_C, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()), "copy");
-//		actionMap.put("copy", copyRecordsAct);
-//
-//		final PhonUIAction pasteRecordsAct = new PhonUIAction( this, "paste" );
-//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()), "paste");
-//		actionMap.put("paste", pasteRecordsAct);
-//
-//		final PhonUIAction cutRecordsAct = new PhonUIAction(this, "cut");
-//		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_X, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()), "cut");
-//		actionMap.put("cut", cutRecordsAct);
-//
-//		for (int i = 0; i < 10; i++) {
-//			final PhonUIAction chSpeakerAct = new PhonUIAction(this, "onChangeSpeakerByIndex", i);
-//			KeyStroke ks = KeyStroke.getKeyStroke(KeyEvent.VK_0 + i,
-//					Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-//			chSpeakerAct.putValue(PhonUIAction.ACCELERATOR_KEY, ks);
-//			String id = "change_speaker_" + i;
-//
-//			actionMap.put(id, chSpeakerAct);
-//			inputMap.put(ks, id);
-//		}
-//
+
+		final String deleteRecordKey = "delete_record";
+		final PhonUIAction deleteRecordAction = new PhonUIAction(this, "onDeleteRecords");
+		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), deleteRecordKey);
+		actionMap.put(deleteRecordKey, deleteRecordAction);
+
+		final String playSegmentKey = "play_segment";
+		final PhonUIAction playSegmentAction = new PhonUIAction(this, "onPlayCurrentRecordSegment");
+		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), playSegmentKey);
+		actionMap.put(playSegmentKey, playSegmentAction);
+
+		final String moveRight = "move_segments_right";
+		final PhonUIAction moveRightAct = new PhonUIAction(this, "onMoveSegmentsRight", 5);
+		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_PERIOD, KeyEvent.CTRL_DOWN_MASK), moveRight);
+		actionMap.put(moveRight, moveRightAct);
+
+		final String moveRightSlow = "move_segments_right_slow";
+		final PhonUIAction moveRightSlowAct = new PhonUIAction(this, "onMoveSegmentsRight", 1);
+		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_PERIOD, KeyEvent.CTRL_DOWN_MASK | KeyEvent.SHIFT_DOWN_MASK), moveRightSlow);
+		actionMap.put(moveRightSlow, moveRightSlowAct);
+
+		final String moveLeft = "move_segments_left";
+		final PhonUIAction moveLeftAct = new PhonUIAction(this, "onMoveSegmentsLeft", 5);
+		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_COMMA, KeyEvent.CTRL_DOWN_MASK), moveLeft);
+		actionMap.put(moveLeft, moveLeftAct);
+
+		final String moveLeftSlow = "move_segments_left_slow";
+		final PhonUIAction moveLeftSlowAct = new PhonUIAction(this, "onMoveSegmentsLeft", 1);
+		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_COMMA, KeyEvent.CTRL_DOWN_MASK | KeyEvent.SHIFT_DOWN_MASK), moveLeftSlow);
+		actionMap.put(moveLeftSlow, moveLeftSlowAct);
+
+		final String move = "move_segments";
+		final PhonUIAction moveAct = new PhonUIAction(this, "onMoveSegments");
+		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_SLASH, KeyEvent.CTRL_DOWN_MASK), move);
+		actionMap.put(move, moveAct);
+
+		final String growSegments = "grow_segments";
+		final PhonUIAction growSegmentsAct = new PhonUIAction(this, "onGrowSegments", 3);
+		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_G, KeyEvent.CTRL_DOWN_MASK ), growSegments);
+		actionMap.put(growSegments, growSegmentsAct);
+
+		final String growSegmentsSlow = "grow_segments_slow";
+		final PhonUIAction growSegmentsSlowAct = new PhonUIAction(this, "onGrowSegments", 1);
+		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_G, KeyEvent.CTRL_DOWN_MASK | KeyEvent.SHIFT_DOWN_MASK), growSegmentsSlow);
+		actionMap.put(growSegmentsSlow, growSegmentsSlowAct);
+
+		final String shrinkSegments = "shrink_segments";
+		final PhonUIAction shrinkSegmentsAct = new PhonUIAction(this, "onShrinkSegments", 3);
+		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_K, KeyEvent.CTRL_DOWN_MASK ), shrinkSegments);
+		actionMap.put(shrinkSegments, shrinkSegmentsAct);
+
+		final String shrinkSegmentsSlow = "shrink_segments_slow";
+		final PhonUIAction shrinkSegmentsSlowAct = new PhonUIAction(this, "onShrinkSegments", 1);
+		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_K, KeyEvent.CTRL_DOWN_MASK |KeyEvent.SHIFT_DOWN_MASK), shrinkSegmentsSlow);
+		actionMap.put(shrinkSegmentsSlow, shrinkSegmentsSlowAct);
+
 //		// split record
 //		final String splitRecordId = "split_record";
 //		final SplitRecordAction splitRecordAct = new SplitRecordAction(getParentView());
@@ -197,18 +187,9 @@ public class DiarizationTimelineTier extends TimelineTier {
 //		final KeyStroke acceptSplitRecordKs = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0);
 //		inputMap.put(acceptSplitRecordKs, acceptSplitId);
 //		actionMap.put(acceptSplitId, acceptSplitRecordAct);
-//
-//		// modify record split
-//		final String splitAtGroupId = "split_record_at_group_";
-//		for (int i = 0; i < 10; i++) {
-//			final PhonUIAction splitRecordAtGrpAct = new PhonUIAction(this, "onSplitRecordOnGroup", i);
-//			final KeyStroke ks = KeyStroke.getKeyStroke(KeyEvent.VK_0 + i, 0);
-//			inputMap.put(ks, splitAtGroupId + i);
-//			actionMap.put(splitAtGroupId + i, splitRecordAtGrpAct);
-//		}
-//
-//		recordGrid.setInputMap(WHEN_FOCUSED, inputMap);
-//		recordGrid.setActionMap(actionMap);
+
+		recordGrid.setInputMap(WHEN_FOCUSED, inputMap);
+		recordGrid.setActionMap(actionMap);
 	}
 	
 	private void setupRecord(Record r) {
@@ -268,9 +249,14 @@ public class DiarizationTimelineTier extends TimelineTier {
 			setVisible(true);
 			getParentView().getRecordTier().setVisible(false);
 			getParentView().getWaveformTier().clearSelection();
+
+			getParentView().getRecordTier().currentRecordInterval().setVisible(false);
 		} else {
 			setVisible(false);
 			getParentView().getRecordTier().setVisible(true);
+
+			getTimeModel().removeInterval(currentRecordInterval);
+			getParentView().getRecordTier().currentRecordInterval().setVisible(true);
 		}
 	}
 
@@ -312,7 +298,7 @@ public class DiarizationTimelineTier extends TimelineTier {
 	 * @return
 	 */
 	public boolean isSpeakerVisible(Participant speaker) {
-		return recordGrid.getSpeakers().contains(speaker);
+		return getRecordGrid().getSpeakers().contains(speaker);
 	}
 
 	public void setSpeakerVisible(Participant speaker, boolean visible) {
@@ -342,7 +328,7 @@ public class DiarizationTimelineTier extends TimelineTier {
 	public List<Participant> getSpeakerList() {
 		List<Participant> retVal = new ArrayList<>();
 
-		Session session = getParentView().getEditor().getSession();
+		Session session = getRecordGrid().getSession();
 		for (var speaker : session.getParticipants()) {
 			if (isSpeakerVisible(speaker)) {
 				retVal.add(speaker);
@@ -352,20 +338,34 @@ public class DiarizationTimelineTier extends TimelineTier {
 		return retVal;
 	}
 
+	public void onDeleteRecords(PhonActionEvent pae) {
+		List<Integer> recordList = new ArrayList<>();
+		for(int rIdx:getSelectionModel().getSelectedIndices()) recordList.add(rIdx);
+		Collections.sort(recordList);
+		Collections.reverse(recordList);
+
+		getParentView().getEditor().getUndoSupport().beginUpdate();
+		for(int recordIdx:recordList) {
+			UndoableDiarizationRecordDeletion edit = new UndoableDiarizationRecordDeletion(recordIdx);
+			getParentView().getEditor().getUndoSupport().postEdit(edit);
+		}
+		getParentView().getEditor().getUndoSupport().endUpdate();
+	}
+
 	public void onSelectAll(PhonActionEvent pae) {
 		List<Integer> visibleRecords = new ArrayList<>();
 		List<Participant> visibleSpeakers = getSpeakerList();
 
-		for(int i = 0; i < getParentView().getEditor().getSession().getRecordCount(); i++) {
-			if(visibleSpeakers.contains(getParentView().getEditor().getSession().getRecord(i).getSpeaker())) {
+		for(int i = 0; i < getRecordGrid().getSession().getRecordCount(); i++) {
+			if(visibleSpeakers.contains(getRecordGrid().getSession().getRecord(i).getSpeaker())) {
 				visibleRecords.add(i);
 			}
 		}
 		if(visibleRecords.size() == 0) return;
 
 		if(getSelectionModel().getSelectedItemsCount() == visibleRecords.size()) {
-			getSelectionModel().setSelectionInterval(getParentView().getEditor().getCurrentRecordIndex(),
-					getParentView().getEditor().getCurrentRecordIndex());
+			getSelectionModel().setSelectionInterval(getRecordGrid().getCurrentRecordIndex(),
+					getRecordGrid().getCurrentRecordIndex());
 		} else {
 			for(int visibleRecord:visibleRecords) {
 				getSelectionModel().addSelectionInterval(visibleRecord, visibleRecord);
@@ -385,6 +385,11 @@ public class DiarizationTimelineTier extends TimelineTier {
 
 	private void setupDiarizationMenu(MenuBuilder builder) {
 		if(isShowingDiarizationResults()) {
+			final PhonUIAction addSelectedResultsAct = new PhonUIAction(this, "onAddSelectedRecords");
+			addSelectedResultsAct.putValue(PhonUIAction.NAME, "Add selected record(s)");
+			addSelectedResultsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Add selected records to session");
+			builder.addItem(".", addSelectedResultsAct).setEnabled(getSelectionModel().getSelectedItemsCount() > 0);
+
 			final PhonUIAction addDiarizationResultsAct = new PhonUIAction(this, "onAddAllResults");
 			addDiarizationResultsAct.putValue(PhonUIAction.NAME, "Add diarization results to session");
 			addDiarizationResultsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Add all diarization results to session and close results");
@@ -401,6 +406,13 @@ public class DiarizationTimelineTier extends TimelineTier {
 			closeDiarizationResultsAct.putValue(PhonUIAction.NAME, "Close diarization results");
 			closeDiarizationResultsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Close diarization results with modifying session");
 			builder.addItem(".", closeDiarizationResultsAct);
+
+			builder.addSeparator(".", "speakers");
+
+			for(Participant p:getRecordGrid().getSpeakers()) {
+				JMenu speakerMenu = builder.addMenu(".", p.toString());
+				setupParticipantMenu(p, new MenuBuilder(speakerMenu));
+			}
 		} else {
 			DiarizationResultsManager resultsManager = new DiarizationResultsManager(getParentView().getEditor().getProject(),
 					getParentView().getEditor().getSession());
@@ -427,6 +439,18 @@ public class DiarizationTimelineTier extends TimelineTier {
 		}
 	}
 
+	private void setupParticipantMenu(Participant diarizationParticipant, MenuBuilder builder) {
+		builder.removeAll();
+
+		PhonUIAction addAllRecordsAct = new PhonUIAction(this, "onAddResultsForSpeaker", diarizationParticipant);
+		addAllRecordsAct.putValue(PhonUIAction.NAME, "Add all records to session");
+		addAllRecordsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Add all records for " + diarizationParticipant + " to session");
+		builder.addItem(".", addAllRecordsAct);
+
+		JMenu assignMenu = builder.addMenu(".", "Assign records to participant");
+		setupParticipantAssigmentMenu(diarizationParticipant, new MenuBuilder(assignMenu));
+	}
+
 	private void setupParticipantAssigmentMenu(Participant diarizationParticipant, MenuBuilder builder) {
 		if(getParentView().getEditor().getSession().getParticipantCount() > 0) {
 			builder.addItem(".", "<html><em>Session Participants</em></html>").setEnabled(false);
@@ -450,6 +474,138 @@ public class DiarizationTimelineTier extends TimelineTier {
 				assignToSpeakerAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Assign all record to " + dp);
 				builder.addItem(".", assignToSpeakerAct);
 			}
+		}
+	}
+
+	public void onMoveSegmentsRight(PhonActionEvent pae) {
+		int amount = Integer.parseInt(pae.getData().toString());
+		float secondsPerPixel = getTimeModel().timeAtX(getTimeModel().getTimeInsets().left+1);
+		float secondsToAdd = amount * secondsPerPixel;
+
+		getParentView().getEditor().getUndoSupport().beginUpdate();
+		for(int recordIdx:getSelectionModel().getSelectedIndices()) {
+			Record r = getRecordGrid().getSession().getRecord(recordIdx);
+
+			MediaSegment recordSeg = r.getSegment().getGroup(0);
+			MediaSegment seg = SessionFactory.newFactory().createMediaSegment();
+			float startValue = recordSeg.getStartValue() + (1000.0f * secondsToAdd);
+			float endValue = recordSeg.getEndValue() + (1000.0f * secondsToAdd);
+			if(endValue/1000.0f <= getTimeModel().getEndTime()) {
+				seg.setStartValue(startValue);
+				seg.setEndValue(endValue);
+
+				UndoableDiarizationRecordIntervalChange changeSeg = new UndoableDiarizationRecordIntervalChange(r, seg);
+				getParentView().getEditor().getUndoSupport().postEdit(changeSeg);
+			}
+		}
+		getParentView().getEditor().getUndoSupport().endUpdate();
+		getRecordGrid().repaint(getRecordGrid().getVisibleRect());
+	}
+
+	public void onGrowSegments(PhonActionEvent pae) {
+		int amount = Integer.parseInt(pae.getData().toString());
+		float secondsPerPixel = getTimeModel().timeAtX(getTimeModel().getTimeInsets().left+1);
+		float secondsToAdd = amount * secondsPerPixel;
+
+		getParentView().getEditor().getUndoSupport().beginUpdate();
+		for(int recordIdx:getSelectionModel().getSelectedIndices()) {
+			Record r = getRecordGrid().getSession().getRecord(recordIdx);
+
+			MediaSegment recordSeg = r.getSegment().getGroup(0);
+			MediaSegment seg = SessionFactory.newFactory().createMediaSegment();
+			float startValue =  Math.max(0, recordSeg.getStartValue() - (1000.0f * secondsToAdd));
+			float endValue = Math.min(getTimeModel().getEndTime() * 1000.0f, recordSeg.getEndValue() + (1000.0f * secondsToAdd));
+
+			seg.setStartValue(startValue);
+			seg.setEndValue(endValue);
+
+			UndoableDiarizationRecordIntervalChange changeSeg = new UndoableDiarizationRecordIntervalChange(r, seg);
+			getParentView().getEditor().getUndoSupport().postEdit(changeSeg);
+		}
+		getParentView().getEditor().getUndoSupport().endUpdate();
+		getRecordGrid().repaint(getRecordGrid().getVisibleRect());
+	}
+
+	public void onShrinkSegments(PhonActionEvent pae) {
+		int amount = Integer.parseInt(pae.getData().toString());
+		float secondsPerPixel = getTimeModel().timeAtX(getTimeModel().getTimeInsets().left+1);
+		float secondsToSubtract = amount * secondsPerPixel;
+
+		getParentView().getEditor().getUndoSupport().beginUpdate();
+		for(int recordIdx:getSelectionModel().getSelectedIndices()) {
+			Record r = getRecordGrid().getSession().getRecord(recordIdx);
+
+			MediaSegment recordSeg = r.getSegment().getGroup(0);
+			MediaSegment seg = SessionFactory.newFactory().createMediaSegment();
+			float startValue = recordSeg.getStartValue() + (1000.0f * secondsToSubtract);
+			float endValue = recordSeg.getEndValue() - (1000.0f * secondsToSubtract);
+
+			if(startValue <= endValue) {
+				seg.setStartValue(startValue);
+				seg.setEndValue(endValue);
+
+				UndoableDiarizationRecordIntervalChange changeSeg = new UndoableDiarizationRecordIntervalChange(r, seg);
+				getParentView().getEditor().getUndoSupport().postEdit(changeSeg);
+			}
+		}
+		getParentView().getEditor().getUndoSupport().endUpdate();
+		getRecordGrid().repaint(getRecordGrid().getVisibleRect());
+	}
+
+	public void onMoveSegmentsLeft(PhonActionEvent pae) {
+		int amount = Integer.parseInt(pae.getData().toString());
+		float secondsPerPixel = getTimeModel().timeAtX(getTimeModel().getTimeInsets().left+1);
+		float secondsToAdd = amount * secondsPerPixel;
+
+		getParentView().getEditor().getUndoSupport().beginUpdate();
+		for(int recordIdx:getSelectionModel().getSelectedIndices()) {
+			Record r = getRecordGrid().getSession().getRecord(recordIdx);
+
+			MediaSegment recordSeg = r.getSegment().getGroup(0);
+			MediaSegment seg = SessionFactory.newFactory().createMediaSegment();
+			float startValue =  recordSeg.getStartValue() - (1000.0f * secondsToAdd);
+			float endValue = recordSeg.getEndValue() - (1000.0f * secondsToAdd);
+
+			if(startValue >= 0) {
+				seg.setStartValue(startValue);
+				seg.setEndValue(endValue);
+
+				UndoableDiarizationRecordIntervalChange changeSeg = new UndoableDiarizationRecordIntervalChange(r, seg);
+				getParentView().getEditor().getUndoSupport().postEdit(changeSeg);
+			}
+		}
+		getParentView().getEditor().getUndoSupport().endUpdate();
+		getRecordGrid().repaint(getRecordGrid().getVisibleRect());
+	}
+
+	public void onPlayCurrentRecordSegment(PhonActionEvent pae) {
+		if(!hasDiarizationResults()) return;
+
+		Record r = getRecordGrid().getCurrentRecord();
+		if(r == null) return;
+
+		MediaSegment seg = r.getSegment().getGroup(0);
+
+		PlaySegmentAction playSegmentAction = new PlaySegmentAction(getParentView().getEditor(),
+				seg.getStartValue()/1000.0f, seg.getEndValue()/1000.0f);
+		playSegmentAction.actionPerformed(pae.getActionEvent());
+	}
+
+	public void onEscape(PhonActionEvent pae) {
+//		if (getRecordGrid().isSplitModeActive()) {
+//			onEndSplitRecord(pae);
+//		} else
+		if (getParentView().getEditor().getViewModel().isShowing(MediaPlayerEditorView.VIEW_TITLE)) {
+			SegmentPlayback segmentPlayback = getParentView().getEditor().getMediaModel().getSegmentPlayback();
+			if(segmentPlayback != null && segmentPlayback.isPlaying()) {
+				segmentPlayback.stopPlaying();
+			}
+		}
+		if(getSelectionModel().getSelectedItemsCount() > 1) {
+			// reset record selection
+			getSelectionModel().setSelectionInterval(getRecordGrid().getCurrentRecordIndex(),
+					getRecordGrid().getCurrentRecordIndex());
+			recordGrid.repaint(recordGrid.getVisibleRect());
 		}
 	}
 
@@ -501,6 +657,81 @@ public class DiarizationTimelineTier extends TimelineTier {
 			Toolkit.getDefaultToolkit().beep();
 			LogUtil.severe(e);
 		}
+	}
+
+	public void onAddSelectedRecords(PhonActionEvent pae) {
+		if(!hasDiarizationResults()) return;
+
+		List<Integer> selectedRecords =
+				Arrays.stream(getSelectionModel().getSelectedIndices()).boxed().collect(Collectors.toList());
+		Collections.reverse(selectedRecords);
+
+		getParentView().getEditor().getUndoSupport().beginUpdate();
+
+		for(int rIdx:selectedRecords) {
+			Record r = getRecordGrid().getSession().getRecord(rIdx);
+			Participant p = r.getSpeaker();
+
+			int pIdx = getParentView().getEditor().getSession().getParticipantIndex(p);
+			if(pIdx < 0) {
+				AddParticipantEdit participantEdit = new AddParticipantEdit(getParentView().getEditor(), p);
+				getParentView().getEditor().getUndoSupport().postEdit(participantEdit);
+			}
+
+			AddRecordEdit recordEdit = new AddRecordEdit(getParentView().getEditor(), r);
+			getParentView().getEditor().getUndoSupport().postEdit(recordEdit);
+
+			UndoableDiarizationRecordDeletion delRecordEdit = new UndoableDiarizationRecordDeletion(rIdx);
+			fireDiarizationResultEdit(delRecordEdit);
+		}
+
+		getSelectionModel().clearSelection();
+
+		getParentView().getEditor().getUndoSupport().endUpdate();
+
+		if(!hasDiarizationResults())
+			clearDiarizationResults();
+	}
+
+	public void onAddResultsForSpeaker(PhonActionEvent pae) {
+		if(pae.getData() == null || !(pae.getData() instanceof Participant)) return;
+		if(!hasDiarizationResults()) return;
+
+		getParentView().getEditor().getUndoSupport().beginUpdate();
+
+		Participant diaParticipant = (Participant) pae.getData();
+		// add participant to session if necessary
+		int idx = getParentView().getEditor().getSession().getParticipantIndex(diaParticipant);
+		if(idx < 0) {
+			final AddParticipantEdit addSpeakerEdit = new AddParticipantEdit(getParentView().getEditor(), diaParticipant);
+			getParentView().getEditor().getUndoSupport().postEdit(addSpeakerEdit);
+		}
+
+		List<Integer> speakerRecords = new ArrayList<>();
+		int editIdx = 0;
+		for(int rIdx = 0; rIdx < getRecordGrid().getSession().getRecordCount(); rIdx++) {
+			Record r = getRecordGrid().getSession().getRecord(rIdx);
+			if(r.getSpeaker() == diaParticipant) {
+				final AddRecordEdit addEdit = new AddRecordEdit(getParentView().getEditor(), r);
+				addEdit.setFireEvent(editIdx++ == 0);
+				getParentView().getEditor().getUndoSupport().postEdit(addEdit);
+
+				speakerRecords.add(rIdx);
+			}
+		}
+		Collections.reverse(speakerRecords);
+
+		for(int rIdx:speakerRecords) {
+			UndoableDiarizationRecordDeletion edit = new UndoableDiarizationRecordDeletion(rIdx);
+			fireDiarizationResultEdit(edit);
+		}
+		UndoableDiarizationParticipantDeletion delSpeaker = new UndoableDiarizationParticipantDeletion(diaParticipant);
+		fireDiarizationResultEdit(delSpeaker);
+
+		getParentView().getEditor().getUndoSupport().endUpdate();
+
+		if(!hasDiarizationResults())
+			clearDiarizationResults();
 	}
 
 	public void onAddAllResults(PhonActionEvent pae) {
@@ -927,6 +1158,50 @@ public class DiarizationTimelineTier extends TimelineTier {
 		onClearResults(new PhonActionEvent(new ActionEvent(this, -1, "close")));
 	}
 
+	private class UndoableDiarizationParticipantDeletion extends AbstractUndoableEdit {
+
+		private int participantIdx;
+
+		private Participant participant;
+
+		public UndoableDiarizationParticipantDeletion(Participant participant) {
+			super();
+			this.participantIdx = getRecordGrid().getSession().getParticipantIndex(participant);
+			this.participant = participant;
+			getRecordGrid().getSession().removeParticipant(participant);
+			updateSpeakerList();
+		}
+
+		@Override
+		public void undo() throws CannotUndoException {
+			if(participantIdx < 0 || participant == null) throw new CannotUndoException();
+
+			getRecordGrid().getSession().addParticipant(participantIdx, participant);
+			updateSpeakerList();
+		}
+
+		private void updateSpeakerList() {
+			var speakerList =
+					StreamSupport.stream(getRecordGrid().getSession().getParticipants().spliterator(), false).collect(Collectors.toList());
+			Session s = getRecordGrid().getSession();
+			getRecordGrid().setSpeakers(speakerList);
+		}
+
+		@Override
+		public void redo() throws CannotRedoException {
+			if(participant == null) throw new CannotRedoException();
+
+			getRecordGrid().getSession().removeParticipant(participant);
+
+			updateSpeakerList();
+		}
+
+		@Override
+		public String getPresentationName() {
+			return "delete diarization participant";
+		}
+	}
+
 	/**
 	 * Undo for record interval changes
 	 */
@@ -977,6 +1252,45 @@ public class DiarizationTimelineTier extends TimelineTier {
 			return "move diarization record";
 		}
 
+	}
+
+	private class UndoableDiarizationRecordDeletion extends AbstractUndoableEdit {
+
+		private int recordIndex;
+
+		private Record record;
+
+		public UndoableDiarizationRecordDeletion(int recordIndex) {
+			record = getRecordGrid().getSession().getRecord(recordIndex);
+			this.recordIndex = recordIndex;
+			getRecordGrid().getSession().removeRecord(recordIndex);
+
+			repaint();
+		}
+
+		@Override
+		public void undo() throws CannotUndoException {
+			if(record == null || recordIndex < 0 || recordIndex > getRecordGrid().getSession().getRecordCount())
+				throw new CannotUndoException();
+			getRecordGrid().getSession().addRecord(recordIndex, record);
+
+			repaint();
+		}
+
+		@Override
+		public void redo() throws CannotRedoException {
+			if(recordIndex < 0 || recordIndex >= getRecordGrid().getSession().getRecordCount()) {
+				throw new CannotUndoException();
+			}
+			getRecordGrid().getSession().removeRecord(recordIndex);
+
+			repaint();
+		}
+
+		@Override
+		public String getPresentationName() {
+			return "delete diarization record";
+		}
 	}
 
 	private class UndoableDiarizationRecordSpeakerChange extends AbstractUndoableEdit {
