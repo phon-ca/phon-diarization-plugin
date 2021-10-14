@@ -2,17 +2,21 @@ package ca.phon.plugins.diarization;
 
 import ca.phon.app.log.*;
 import ca.phon.app.session.editor.SessionMediaModel;
+import ca.phon.formatter.FormatterFactory;
 import ca.phon.project.Project;
 import ca.phon.session.Session;
 import ca.phon.ui.decorations.*;
 import ca.phon.ui.fonts.FontPreferences;
 import ca.phon.ui.jbreadcrumb.BreadcrumbButton;
 import ca.phon.ui.nativedialogs.*;
+import ca.phon.ui.text.*;
+import ca.phon.ui.toast.*;
 import ca.phon.ui.wizard.BreadcrumbWizardFrame;
 import ca.phon.ui.wizard.WizardStep;
 import org.jdesktop.swingx.*;
 
 import javax.swing.*;
+import javax.swing.border.Border;
 import javax.swing.plaf.ColorUIResource;
 import java.awt.*;
 import java.io.*;
@@ -26,6 +30,8 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
     private WizardStep diarizationSelectionStep;
 
     private JRadioButton liumDiarizationButton;
+    private JCheckBox doCEClusteringBox;
+    private FormatterTextField<Integer> maxSpeakersField;
 
     private JRadioButton googleSpeechToTextButton;
 
@@ -171,14 +177,48 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
 
         WizardStep retVal = newStepWithHeader(title, desc);
 
-        TitledPanel btnPanel = new TitledPanel(desc);
-        btnPanel.getContentContainer().setLayout(new VerticalLayout());
+//        TitledPanel btnPanel = new TitledPanel(desc);
+//        btnPanel.getContentContainer().setLayout(new VerticalLayout());
         ButtonGroup btnGrp = new ButtonGroup();
 
-        liumDiarizationButton = new JRadioButton("LIUM Diarization");
+        JPanel liumOptionsPanel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+
+        liumDiarizationButton = new JRadioButton("LIUM Diarization (embedded)");
         liumDiarizationButton.setToolTipText("Diarize session audio using the open source LIUM diarization tool");
         liumDiarizationButton.setSelected(true);
         btnGrp.add(liumDiarizationButton);
+
+        doCEClusteringBox = new JCheckBox("Do CE clustering");
+        doCEClusteringBox.setSelected(true);
+        doCEClusteringBox.setToolTipText("Perform a final clustering step using the CE method");
+
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        gbc.gridwidth = 1;
+        gbc.gridheight = 1;
+        liumOptionsPanel.add(new JLabel("Clustering options:"), gbc);
+        ++gbc.gridy;
+        gbc.insets = new Insets(0, 20, 0, 0);
+        liumOptionsPanel.add(doCEClusteringBox, gbc);
+
+        maxSpeakersField = new FormatterTextField<Integer>(FormatterFactory.createFormatter(Integer.class));
+        maxSpeakersField.setPrompt("Enter max speakers, 0 = auto");
+        maxSpeakersField.setValue(0);
+
+        ++gbc.gridy;
+        gbc.insets = new Insets(0, 0, 0, 0);
+        liumOptionsPanel.add(new JLabel("Max speakers:"), gbc);
+        ++gbc.gridy;
+        gbc.insets = new Insets(0, 20, 0, 0);
+        liumOptionsPanel.add(maxSpeakersField, gbc);
+
+        liumDiarizationButton.addPropertyChangeListener("selected", (e) -> {
+            doCEClusteringBox.setEnabled(liumDiarizationButton.isSelected());
+            maxSpeakersField.setEnabled(liumDiarizationButton.isSelected());
+        });
 
         googleSpeechToTextButton = new JRadioButton("Google Speech to Text (Cloud Services)");
         googleSpeechToTextButton.setToolTipText("Diarize session audio using Google Cloud Services (requires account)");
@@ -186,10 +226,24 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         googleSpeechToTextButton.setEnabled(false);
         btnGrp.add(googleSpeechToTextButton);
 
-        btnPanel.getContentContainer().add(liumDiarizationButton);
-        btnPanel.getContentContainer().add(googleSpeechToTextButton);
+        JPanel googleOptionsPanel = new JPanel();
 
-        retVal.add(btnPanel, BorderLayout.CENTER);
+        TitledPanel liumPanel = new TitledPanel("", liumOptionsPanel);
+        liumPanel.setLeftDecoration(liumDiarizationButton);
+
+        TitledPanel googlePanel = new TitledPanel("", googleOptionsPanel);
+        googlePanel.setLeftDecoration(googleSpeechToTextButton);
+
+        JPanel contentPanel = new JPanel(new VerticalLayout(0));
+        contentPanel.add(liumPanel);
+        contentPanel.add(googlePanel);
+
+//        btnPanel.getContentContainer().add(liumDiarizationButton);
+//        btnPanel.getContentContainer().add(liumOptionsPanel);
+//
+//        btnPanel.getContentContainer().add(googleSpeechToTextButton);
+
+        retVal.add(contentPanel, BorderLayout.CENTER);
 
         return retVal;
     }
@@ -236,7 +290,27 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         busyLabel.setBusy(true);
 
         LIUMDiarizationTool tool = new LIUMDiarizationTool();
+        tool.setDoCEClustering(doCEClusteringBox.isSelected());
+        if(maxSpeakersField.getValue() > 0) {
+            tool.setForceSpeakerMax(true);
+            tool.setMaxSpeakerCount(maxSpeakersField.getValue());
+        } else {
+            tool.setForceSpeakerMax(false);
+        }
         startDiarization(tool, mediaModel.getSessionAudioFile());
+    }
+
+    @Override
+    public void next() {
+        if(getWizardStep(getCurrentStepIndex()) == diarizationSelectionStep) {
+            if(liumDiarizationButton.isSelected()) {
+                if(!maxSpeakersField.validateText()) {
+                    Toolkit.getDefaultToolkit().beep();
+                    return;
+                }
+            }
+        }
+        super.next();
     }
 
     @Override
@@ -277,13 +351,11 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
 
             Project p = diarizationTier.getParentView().getEditor().getProject();
             DiarizationResultsManager resultsManager = new DiarizationResultsManager(p, s);
+            diarizationListener.diarizationEvent(new DiarizationEvent("Saving diarization results to file " + resultsManager.diarizationResultsFile(false)));
 
-            SwingUtilities.invokeLater(() -> {
-               bufferPanel.getLogBuffer().append("Saving diarization results to file " + resultsManager.diarizationResultsFile(false) + "\n");
-               bufferPanel.getLogBuffer().setCaretPosition(bufferPanel.getLogBuffer().getDocument().getLength());
-            });
             try {
                 resultsManager.saveDiarizationResults(s);
+                diarizationListener.diarizationEvent(new DiarizationEvent("Close window to view and modify diarization results"));
             } catch (IOException e) {
                 Toolkit.getDefaultToolkit().beep();
                 LogUtil.severe(e);

@@ -14,10 +14,11 @@ import javax.xml.transform.stream.StreamResult;
 import javax.xml.transform.stream.StreamSource;
 
 import ca.phon.app.log.LogUtil;
+import ca.phon.session.*;
+import ca.phon.session.Record;
 import ca.phon.session.io.*;
 import ca.phon.worker.PhonWorker;
 
-import ca.phon.session.Session;
 import ca.phon.ui.nativedialogs.OSInfo;
 
 /**
@@ -48,6 +49,12 @@ public final class LIUMDiarizationTool extends DiarizationTool {
 
 	/** The c max. */
 	private double cMax = 1.2;
+
+	/** For results into a specific numbers of speakers */
+	private boolean forceSpeakerMax = false;
+
+	/** Max speaker count (when forced) */
+	private int maxSpeakerCount = 0;
 
 	public void setDoCEClustering(boolean doCEClustering) {
 		this.doCEClustering = doCEClustering;
@@ -121,6 +128,22 @@ public final class LIUMDiarizationTool extends DiarizationTool {
 		this.cMax = cMax;
 	}
 
+	public boolean isForceSpeakerMax() {
+		return this.forceSpeakerMax;
+	}
+
+	public void setForceSpeakerMax(boolean forceSpeakerMax) {
+		this.forceSpeakerMax = forceSpeakerMax;
+	}
+
+	public int getMaxSpeakerCount() {
+		return this.maxSpeakerCount;
+	}
+
+	public void setMaxSpeakerCount(int maxSpeakerCount) {
+		this.maxSpeakerCount = maxSpeakerCount;
+	}
+
 	public DiarizationFutureResult diarize(File audioFile) throws IOException {
 		final String javaHome = System.getProperty("java.home");
 		final String javaBin = javaHome + File.separator + "bin" + File.separator + "java" + 
@@ -190,9 +213,32 @@ public final class LIUMDiarizationTool extends DiarizationTool {
             ByteArrayOutputStream bout = new ByteArrayOutputStream();
             transformer.transform(new StreamSource(resultFile), new StreamResult(bout));
             
-            return inputFactory.createReader("phonbank", "1.2").readSession(new ByteArrayInputStream(bout.toByteArray()));
+            Session retVal =
+		            inputFactory.createReader("phonbank", "1.2").readSession(new ByteArrayInputStream(bout.toByteArray()));
+			if(isForceSpeakerMax()) {
+				enforceMaxSpeakers(retVal);
+			}
+			return retVal;
 		} catch (TransformerFactoryConfigurationError | TransformerException e) {
 			throw new IOException(e);
+		}
+	}
+
+	private void enforceMaxSpeakers(Session s) {
+		if(s.getParticipantCount() <= getMaxSpeakerCount()) return;
+		fireDiarizationEvent("Forcing number of clusters to " + getMaxSpeakerCount());
+
+		for(int i = getMaxSpeakerCount(); i < s.getParticipantCount(); i++) {
+			Participant assignFrom = s.getParticipant(i);
+			Participant assignTo = s.getParticipant(i % getMaxSpeakerCount());
+			for(Record r:s.getRecords()) {
+				if(r.getSpeaker() == assignFrom) {
+					r.setSpeaker(assignTo);
+				}
+			}
+		}
+		for(int i = s.getParticipantCount() - 1; i >= getMaxSpeakerCount(); i--) {
+			s.removeParticipant(i);
 		}
 	}
 	
