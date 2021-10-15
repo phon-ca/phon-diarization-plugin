@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.stream.*;
 
 import javax.swing.*;
+import javax.swing.event.MouseInputAdapter;
 import javax.swing.undo.*;
 
 import ca.phon.app.session.editor.SegmentPlayback;
@@ -20,7 +21,7 @@ import ca.phon.app.session.editor.undo.*;
 import ca.phon.app.session.editor.view.media_player.MediaPlayerEditorView;
 import ca.phon.app.session.editor.view.timeline.*;
 import ca.phon.session.io.*;
-import ca.phon.ui.CommonModuleFrame;
+import ca.phon.ui.*;
 import ca.phon.ui.nativedialogs.*;
 import ca.phon.util.Tuple;
 
@@ -38,15 +39,19 @@ import ca.phon.session.SystemTierType;
 import ca.phon.ui.action.PhonActionEvent;
 import ca.phon.ui.action.PhonUIAction;
 import ca.phon.ui.menu.MenuBuilder;
+import ca.phon.util.icons.*;
 
 @PhonPlugin(name="phon-diarization-plugin", author="Greg Hedlund", minPhonVersion="3.1.0")
 public class DiarizationTimelineTier extends TimelineTier {
+
+	private final static String ICON = "actions/segmentation";
+
+	private final static String SEPARATOR_LABEL = "Diarization Results";
 
 	private JToolBar toolbar;
 
 	private JButton diarizeButton;
 
-	private final static String SEPARATOR_LABEL = "Diarization Results";
 	private TimelineTitledSeparator separator;
 	
 	private RecordGrid recordGrid;
@@ -60,9 +65,9 @@ public class DiarizationTimelineTier extends TimelineTier {
 		init();
 		setupRecordGridActions();
 
-		parent.addMenuHandler( (builder) -> {
+		parent.addMenuHandler( (builder, includeAccel) -> {
 			JMenu diaMenu = builder.addMenu(".", "Diarization");
-			setupDiarizationMenu(new MenuBuilder(diaMenu));
+			setupDiarizationMenu(new MenuBuilder(diaMenu), includeAccel);
 		});
 
 		recordGrid.addMouseListener(parent.getContextMenuListener());
@@ -71,6 +76,7 @@ public class DiarizationTimelineTier extends TimelineTier {
 	private void init() {
 		SessionFactory factory = SessionFactory.newFactory();
 		recordGrid = new RecordGrid(getTimeModel(), factory.createSession());
+		recordGrid.setUI(new DiarizationRecordGridUI(this));
 		recordGrid.setTiers(Collections.singletonList(SystemTierType.Segment.getName()));
 		recordGrid.addRecordGridMouseListener(mouseListener);
 		getSelectionModel().addListSelectionListener( (e) -> {
@@ -84,17 +90,23 @@ public class DiarizationTimelineTier extends TimelineTier {
 		recordGrid.addParticipantMenuHandler(this::setupParticipantMenu);
 
 		toolbar = getParentView().getToolbar();
-		
+
+		DropDownIcon icn = new DropDownIcon(IconManager.getInstance().getIcon(ICON, IconSize.SMALL), 0, SwingConstants.BOTTOM);
+
 		final PhonUIAction diarizeAct = new PhonUIAction(this, "showDiarizationMenu");
 		diarizeAct.putValue(PhonUIAction.NAME, "Diarization");
 		diarizeAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Run LIUM speaker diarization tool");
 		diarizeButton = new JButton(diarizeAct);
+		diarizeButton.setIcon(icn);
 		
 		toolbar.addSeparator();
 		toolbar.add(diarizeButton);
 		
 		setLayout(new BorderLayout());
-		separator = new TimelineTitledSeparator(getTimeModel(), SEPARATOR_LABEL, null, SwingConstants.LEFT, Color.black, 1);
+
+		separator = new TimelineTitledSeparator(getTimeModel(), SEPARATOR_LABEL, icn, SwingConstants.LEFT, Color.black, 1);
+		separator.addMouseListener(separatorMouseListener);
+		separator.addMouseMotionListener(separatorMouseListener);
 		addPropertyChangeListener("hasUnsavedChanges", (e) -> {
 			separator.setTitle(SEPARATOR_LABEL + (this.hasUnsavedChanges() ? "*" : ""));
 			separator.repaint();
@@ -175,18 +187,10 @@ public class DiarizationTimelineTier extends TimelineTier {
 		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_K, KeyEvent.CTRL_DOWN_MASK |KeyEvent.SHIFT_DOWN_MASK), shrinkSegmentsSlow);
 		actionMap.put(shrinkSegmentsSlow, shrinkSegmentsSlowAct);
 
-//		// split record
-//		final String splitRecordId = "split_record";
-//		final SplitRecordAction splitRecordAct = new SplitRecordAction(getParentView());
-//		final KeyStroke splitRecordKs = KeyStroke.getKeyStroke(KeyEvent.VK_S, 0);
-//		inputMap.put(splitRecordKs, splitRecordId);
-//		actionMap.put(splitRecordId, splitRecordAct);
-//
-//		final String acceptSplitId = "accept_split_record";
-//		final PhonUIAction acceptSplitRecordAct = new PhonUIAction(this, "onEndSplitRecord", true);
-//		final KeyStroke acceptSplitRecordKs = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0);
-//		inputMap.put(acceptSplitRecordKs, acceptSplitId);
-//		actionMap.put(acceptSplitId, acceptSplitRecordAct);
+		final String addSelected = "add_selected_records";
+		final PhonUIAction addSelectedAct = new PhonUIAction(this, "onAddSelectedRecords");
+		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), addSelected);
+		actionMap.put(addSelected, addSelectedAct);
 
 		recordGrid.setInputMap(WHEN_FOCUSED, inputMap);
 		recordGrid.setActionMap(actionMap);
@@ -250,13 +254,15 @@ public class DiarizationTimelineTier extends TimelineTier {
 			getParentView().getRecordTier().setVisible(false);
 			getParentView().getWaveformTier().clearSelection();
 
-			getParentView().getRecordTier().currentRecordInterval().setVisible(false);
+			if(getParentView().getRecordTier().currentRecordInterval() != null)
+				getParentView().getRecordTier().currentRecordInterval().setVisible(false);
 		} else {
 			setVisible(false);
 			getParentView().getRecordTier().setVisible(true);
 
 			getTimeModel().removeInterval(currentRecordInterval);
-			getParentView().getRecordTier().currentRecordInterval().setVisible(true);
+			if(getParentView().getRecordTier().currentRecordInterval() != null)
+				getParentView().getRecordTier().currentRecordInterval().setVisible(true);
 		}
 	}
 
@@ -338,6 +344,19 @@ public class DiarizationTimelineTier extends TimelineTier {
 		return retVal;
 	}
 
+	/**
+	 * Remove specified record from results
+	 *
+	 * @param pae
+	 */
+	public void onDeleteRecord(PhonActionEvent pae) {
+		Integer recordIndex = (Integer) pae.getData();
+		if(recordIndex == null || recordIndex < 0 || recordIndex >= getRecordGrid().getSession().getRecordCount()) return;
+
+		UndoableDiarizationRecordDeletion edit = new UndoableDiarizationRecordDeletion(recordIndex);
+		fireDiarizationResultEdit(edit);
+	}
+
 	public void onDeleteRecords(PhonActionEvent pae) {
 		List<Integer> recordList = new ArrayList<>();
 		for(int rIdx:getSelectionModel().getSelectedIndices()) recordList.add(rIdx);
@@ -345,9 +364,9 @@ public class DiarizationTimelineTier extends TimelineTier {
 		Collections.reverse(recordList);
 
 		getParentView().getEditor().getUndoSupport().beginUpdate();
-		for(int recordIdx:recordList) {
-			UndoableDiarizationRecordDeletion edit = new UndoableDiarizationRecordDeletion(recordIdx);
-			getParentView().getEditor().getUndoSupport().postEdit(edit);
+		for(int recordIndex:recordList) {
+			UndoableDiarizationRecordDeletion edit = new UndoableDiarizationRecordDeletion(recordIndex);
+			fireDiarizationResultEdit(edit);
 		}
 		getParentView().getEditor().getUndoSupport().endUpdate();
 	}
@@ -378,21 +397,35 @@ public class DiarizationTimelineTier extends TimelineTier {
 		JPopupMenu menu = new JPopupMenu();
 		MenuBuilder builder = new MenuBuilder(menu);
 
-		setupDiarizationMenu(builder);
+		setupDiarizationMenu(builder, true);
 
 		menu.show(diarizeButton, 0, diarizeButton.getHeight());
 	}
 
-	private void setupDiarizationMenu(MenuBuilder builder) {
+	private void setupDiarizationMenu(MenuBuilder builder, boolean includeAccel) {
 		if(isShowingDiarizationResults()) {
 			final PhonUIAction addSelectedResultsAct = new PhonUIAction(this, "onAddSelectedRecords");
-			addSelectedResultsAct.putValue(PhonUIAction.NAME, "Add selected record(s)");
-			addSelectedResultsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Add selected records to session");
+			addSelectedResultsAct.putValue(PhonUIAction.NAME, "Add selected record" +
+					(getSelectionModel().getSelectedItemsCount() > 1 ? "s" : ""));
+			addSelectedResultsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Add selected record(s) to session");
+			addSelectedResultsAct.putValue(PhonUIAction.SMALL_ICON, IconManager.getInstance().getIcon("actions/list-add", IconSize.SMALL));
+			if(includeAccel)
+				addSelectedResultsAct.putValue(PhonUIAction.ACCELERATOR_KEY, KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0));
 			builder.addItem(".", addSelectedResultsAct).setEnabled(getSelectionModel().getSelectedItemsCount() > 0);
 
+			final PhonUIAction delectSelectedResultsAct = new PhonUIAction(this, "onDeleteRecords");
+			delectSelectedResultsAct.putValue(PhonUIAction.NAME, "Delete selected record" +
+					(getSelectionModel().getSelectedItemsCount() > 1 ? "s" : ""));
+			delectSelectedResultsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Delete selected record(s) from diarization results");
+			delectSelectedResultsAct.putValue(PhonUIAction.SMALL_ICON, IconManager.getInstance().getIcon("actions/list-remove", IconSize.SMALL));
+			if(includeAccel)
+				delectSelectedResultsAct.putValue(PhonUIAction.ACCELERATOR_KEY, KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0));
+			builder.addItem(".", delectSelectedResultsAct).setEnabled(getSelectionModel().getSelectedItemsCount() > 0);
+
 			final PhonUIAction addDiarizationResultsAct = new PhonUIAction(this, "onAddAllResults");
-			addDiarizationResultsAct.putValue(PhonUIAction.NAME, "Add diarization results to session");
+			addDiarizationResultsAct.putValue(PhonUIAction.NAME, "Add all records to session");
 			addDiarizationResultsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Add all diarization results to session and close results");
+			addDiarizationResultsAct.putValue(PhonUIAction.SMALL_ICON, IconManager.getInstance().getIcon("actions/list-add", IconSize.SMALL));
 			builder.addItem(".", addDiarizationResultsAct);
 
 			builder.addSeparator(".", "dia_sep");
@@ -400,17 +433,20 @@ public class DiarizationTimelineTier extends TimelineTier {
 			final PhonUIAction updateResultsAct = new PhonUIAction(this, "onUpdateResults");
 			updateResultsAct.putValue(PhonUIAction.NAME, "Save changes to diarization results");
 			updateResultsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Update diarization results on disk");
+			updateResultsAct.putValue(PhonUIAction.SMALL_ICON, IconManager.getInstance().getIcon("actions/document-save", IconSize.SMALL));
 			builder.addItem(".", updateResultsAct).setEnabled(this.hasUnsavedChanges);
 
 			final PhonUIAction closeDiarizationResultsAct = new PhonUIAction(this, "onClearResults");
 			closeDiarizationResultsAct.putValue(PhonUIAction.NAME, "Close diarization results");
 			closeDiarizationResultsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Close diarization results with modifying session");
+			closeDiarizationResultsAct.putValue(PhonUIAction.SMALL_ICON, IconManager.getInstance().getIcon("actions/button_cancel", IconSize.SMALL));
 			builder.addItem(".", closeDiarizationResultsAct);
 
 			builder.addSeparator(".", "speakers");
 
 			for(Participant p:getRecordGrid().getSpeakers()) {
 				JMenu speakerMenu = builder.addMenu(".", p.toString());
+				speakerMenu.setIcon(IconManager.getInstance().getIcon("apps/system-users", IconSize.SMALL));
 				setupParticipantMenu(p, new MenuBuilder(speakerMenu));
 			}
 		} else {
@@ -445,6 +481,7 @@ public class DiarizationTimelineTier extends TimelineTier {
 		PhonUIAction addAllRecordsAct = new PhonUIAction(this, "onAddResultsForSpeaker", diarizationParticipant);
 		addAllRecordsAct.putValue(PhonUIAction.NAME, "Add all records to session");
 		addAllRecordsAct.putValue(PhonUIAction.SHORT_DESCRIPTION, "Add all records for " + diarizationParticipant + " to session");
+		addAllRecordsAct.putValue(PhonUIAction.SMALL_ICON, IconManager.getInstance().getIcon("actions/list-add", IconSize.SMALL));
 		builder.addItem(".", addAllRecordsAct);
 
 		JMenu assignMenu = builder.addMenu(".", "Assign records to participant");
@@ -659,8 +696,39 @@ public class DiarizationTimelineTier extends TimelineTier {
 		}
 	}
 
+	/**
+	 * Add specified record index to session
+	 *
+	 * @param pae
+	 */
+	public void onAddRecord(PhonActionEvent pae) {
+		Integer recordIdx = (Integer) pae.getData();
+		if(recordIdx == null || recordIdx < 0 || recordIdx >= getRecordGrid().getSession().getRecordCount()) return;
+
+		getParentView().getEditor().getUndoSupport().beginUpdate();;
+
+		Record r = getRecordGrid().getSession().getRecord(recordIdx);
+		Participant p = r.getSpeaker();
+
+		int pIdx = getParentView().getEditor().getSession().getParticipantIndex(p);
+		if(pIdx < 0) {
+			AddParticipantEdit participantEdit = new AddParticipantEdit(getParentView().getEditor(), p);
+			getParentView().getEditor().getUndoSupport().postEdit(participantEdit);
+		}
+
+		AddRecordEdit recordEdit = new AddRecordEdit(getParentView().getEditor(), r);
+		getParentView().getEditor().getUndoSupport().postEdit(recordEdit);
+
+		UndoableDiarizationRecordDeletion delRecordEdit = new UndoableDiarizationRecordDeletion(recordIdx);
+		fireDiarizationResultEdit(delRecordEdit);
+
+		getParentView().getEditor().getUndoSupport().endUpdate();
+	}
+
 	public void onAddSelectedRecords(PhonActionEvent pae) {
 		if(!hasDiarizationResults()) return;
+
+		boolean hasFocus = getRecordGrid().hasFocus();
 
 		List<Integer> selectedRecords =
 				Arrays.stream(getSelectionModel().getSelectedIndices()).boxed().collect(Collectors.toList());
@@ -669,20 +737,8 @@ public class DiarizationTimelineTier extends TimelineTier {
 		getParentView().getEditor().getUndoSupport().beginUpdate();
 
 		for(int rIdx:selectedRecords) {
-			Record r = getRecordGrid().getSession().getRecord(rIdx);
-			Participant p = r.getSpeaker();
-
-			int pIdx = getParentView().getEditor().getSession().getParticipantIndex(p);
-			if(pIdx < 0) {
-				AddParticipantEdit participantEdit = new AddParticipantEdit(getParentView().getEditor(), p);
-				getParentView().getEditor().getUndoSupport().postEdit(participantEdit);
-			}
-
-			AddRecordEdit recordEdit = new AddRecordEdit(getParentView().getEditor(), r);
-			getParentView().getEditor().getUndoSupport().postEdit(recordEdit);
-
-			UndoableDiarizationRecordDeletion delRecordEdit = new UndoableDiarizationRecordDeletion(rIdx);
-			fireDiarizationResultEdit(delRecordEdit);
+			PhonActionEvent rpae = new PhonActionEvent(pae.getActionEvent(), rIdx);
+			onAddRecord(rpae);
 		}
 
 		getSelectionModel().clearSelection();
@@ -691,6 +747,10 @@ public class DiarizationTimelineTier extends TimelineTier {
 
 		if(!hasDiarizationResults())
 			clearDiarizationResults();
+
+		if(hasFocus) {
+			SwingUtilities.invokeLater(getRecordGrid()::requestFocus);
+		}
 	}
 
 	public void onAddResultsForSpeaker(PhonActionEvent pae) {
@@ -844,7 +904,7 @@ public class DiarizationTimelineTier extends TimelineTier {
 			builder.addItem(".", clearAllAct);
 		} else {
 			if(getParentView().getEditor().getMediaModel().isSessionAudioAvailable())
-				setupDiarizationMenu(builder);
+				setupDiarizationMenu(builder, includeAccel);
 		}
 	}
 
@@ -983,6 +1043,41 @@ public class DiarizationTimelineTier extends TimelineTier {
 				}
 			}
 		}
+	};
+
+	private final MouseInputAdapter separatorMouseListener = new MouseInputAdapter() {
+		@Override
+		public void mousePressed(MouseEvent e) {
+			super.mousePressed(e);
+			if(separator.getLabelRect().contains(e.getPoint())) {
+				JPopupMenu diaMenu = new JPopupMenu();
+				setupDiarizationMenu(new MenuBuilder(diaMenu), true);
+				diaMenu.show(separator, separator.getLabelRect().x, separator.getHeight());
+			}
+		}
+
+		@Override
+		public void mouseEntered(MouseEvent e) {
+			super.mouseEntered(e);
+			if(separator.getLabelRect().contains(e.getPoint())) {
+				separator.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			}
+		}
+
+		@Override
+		public void mouseExited(MouseEvent e) {
+			super.mouseExited(e);
+			separator.setCursor(Cursor.getDefaultCursor());
+		}
+
+		@Override
+		public void mouseMoved(MouseEvent e) {
+			super.mouseMoved(e);
+			if(separator.getLabelRect().contains(e.getPoint())) {
+				separator.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			}
+		}
+
 	};
 
 	private final RecordMouseListener mouseListener = new RecordMouseListener();
