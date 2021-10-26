@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <!--
 /*
  * Copyright (C) 2021-present Gregory Hedlund
@@ -15,7 +16,6 @@
  * limitations under the License.
  */
 !-->
-<?xml version="1.0" encoding="UTF-8"?>
 <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
 	xmlns:xs="http://www.w3.org/2001/XMLSchema"
 	xmlns="http://phon.ling.mun.ca/ns/phonbank"
