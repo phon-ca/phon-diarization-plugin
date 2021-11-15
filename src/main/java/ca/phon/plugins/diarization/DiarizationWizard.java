@@ -24,20 +24,24 @@ import ca.phon.ui.decorations.*;
 import ca.phon.ui.fonts.FontPreferences;
 import ca.phon.ui.jbreadcrumb.BreadcrumbButton;
 import ca.phon.ui.nativedialogs.*;
+import ca.phon.ui.nativedialogs.FileFilter;
 import ca.phon.ui.text.*;
-import ca.phon.ui.toast.*;
 import ca.phon.ui.wizard.BreadcrumbWizardFrame;
 import ca.phon.ui.wizard.WizardStep;
+import ca.phon.util.PrefHelper;
 import org.jdesktop.swingx.*;
 
 import javax.swing.*;
-import javax.swing.border.Border;
-import javax.swing.plaf.ColorUIResource;
 import java.awt.*;
 import java.io.*;
+import java.util.Arrays;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * Diarization wizard
+ *
+ */
 public class DiarizationWizard extends BreadcrumbWizardFrame {
 
     private final DiarizationTimelineTier diarizationTier;
@@ -46,9 +50,24 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
 
     private JRadioButton liumDiarizationButton;
     private JCheckBox doCEClusteringBox;
-    private FormatterTextField<Integer> maxSpeakersField;
+    private FormatterTextField<Integer> liumMaxSpeakersField;
+
+    private final static String LAST_GOOGLE_PROJECT_ID = "gcst.projectId";
+    private final static String LAST_GOOGLE_CREDENTIALS_FILE = "gcst.credentialsFile";
+    private final static String LAST_GOOGLE_STORAGE_LOCATION = "gcst.storageLocation";
+    private final static String DEFAULT_GOOGLE_STORAGE_LOCATION = "US";
+    private final static String LAST_GOOGLE_LANGUAGE_MODEL = "gcst.languageModel";
+    private final static String DEFAULT_GOOGLE_LANGUAGE_MODEL = "English (United States)";
+    private final static String LAST_GOOGLE_FORMAT_MODEL = "gcst.formatModel";
+    private final static String DEFAULT_GOOGLE_FORMAT_MODEL = "video";
 
     private JRadioButton googleSpeechToTextButton;
+    private PromptedTextField projectIdField;
+    private FileSelectionField credidentialsFileField;
+    private JComboBox<String> bucketStorageLocationBox;
+    private JComboBox<String> languageModelSelectionBox;
+    private JComboBox<String> formatModelSelectionBox;
+    private FormatterTextField<Integer> googleMaxSpeakersField;
 
     private WizardStep reportStep;
 
@@ -192,8 +211,6 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
 
         WizardStep retVal = newStepWithHeader(title, desc);
 
-//        TitledPanel btnPanel = new TitledPanel(desc);
-//        btnPanel.getContentContainer().setLayout(new VerticalLayout());
         ButtonGroup btnGrp = new ButtonGroup();
 
         JPanel liumOptionsPanel = new JPanel(new GridBagLayout());
@@ -208,40 +225,155 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         doCEClusteringBox.setSelected(true);
         doCEClusteringBox.setToolTipText("Perform a final clustering step using the CE method");
 
+        final JLabel ceClusteringLbl = new JLabel("Clustering options:");
+        final JLabel liumMaxSpeakersLbl = new JLabel("Max speakers:");
+
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
         gbc.gridwidth = 1;
         gbc.gridheight = 1;
-        liumOptionsPanel.add(new JLabel("Clustering options:"), gbc);
+        liumOptionsPanel.add(ceClusteringLbl, gbc);
         ++gbc.gridy;
         gbc.insets = new Insets(0, 20, 0, 0);
         liumOptionsPanel.add(doCEClusteringBox, gbc);
 
-        maxSpeakersField = new FormatterTextField<Integer>(FormatterFactory.createFormatter(Integer.class));
-        maxSpeakersField.setPrompt("Enter max speakers, 0 = auto");
-        maxSpeakersField.setValue(0);
+        liumMaxSpeakersField = new FormatterTextField<Integer>(FormatterFactory.createFormatter(Integer.class));
+        liumMaxSpeakersField.setPrompt("Enter max speakers, 0 = auto");
+        liumMaxSpeakersField.setValue(0);
 
         ++gbc.gridy;
         gbc.insets = new Insets(0, 0, 0, 0);
-        liumOptionsPanel.add(new JLabel("Max speakers:"), gbc);
+        liumOptionsPanel.add(liumMaxSpeakersLbl, gbc);
         ++gbc.gridy;
         gbc.insets = new Insets(0, 20, 0, 0);
-        liumOptionsPanel.add(maxSpeakersField, gbc);
+        liumOptionsPanel.add(liumMaxSpeakersField, gbc);
 
-        liumDiarizationButton.addPropertyChangeListener("selected", (e) -> {
+        liumDiarizationButton.addChangeListener((e) -> {
+            ceClusteringLbl.setEnabled(liumDiarizationButton.isSelected());
             doCEClusteringBox.setEnabled(liumDiarizationButton.isSelected());
-            maxSpeakersField.setEnabled(liumDiarizationButton.isSelected());
+
+            liumMaxSpeakersLbl.setEnabled(liumDiarizationButton.isSelected());
+            liumMaxSpeakersField.setEnabled(liumDiarizationButton.isSelected());
         });
+
+        // labels
+        final JLabel projectIdLbl = new JLabel("Project id:");
+        projectIdLbl.setEnabled(false);
+        final JLabel credLbl = new JLabel("Service Account Credentials File (.json):");
+        credLbl.setEnabled(false);
+        final JLabel bucketLbl = new JLabel("Google Cloud Storage Bucket Location (if file length > 60s):");
+        bucketLbl.setEnabled(false);
+        final JLabel languageLbl = new JLabel("Language model:");
+        languageLbl.setEnabled(false);
+        final JLabel formatLbl = new JLabel("Audio format model:");
+        formatLbl.setEnabled(false);
+        final JLabel maxSpeakersLbl = new JLabel("Max speakers:");
+        maxSpeakersLbl.setEnabled(false);
 
         googleSpeechToTextButton = new JRadioButton("Google Speech to Text (Cloud Services)");
         googleSpeechToTextButton.setToolTipText("Diarize session audio using Google Cloud Services (requires account)");
         googleSpeechToTextButton.setSelected(false);
-        googleSpeechToTextButton.setEnabled(false);
+        googleSpeechToTextButton.addChangeListener((e) -> {
+            projectIdLbl.setEnabled(googleSpeechToTextButton.isSelected());
+            projectIdField.setEnabled(googleSpeechToTextButton.isSelected());
+
+            credLbl.setEnabled(googleSpeechToTextButton.isSelected());
+            credidentialsFileField.setEnabled(googleSpeechToTextButton.isSelected());
+
+            bucketLbl.setEnabled(googleSpeechToTextButton.isSelected());
+            bucketStorageLocationBox.setEnabled(googleSpeechToTextButton.isSelected());
+
+            languageLbl.setEnabled(googleSpeechToTextButton.isSelected());
+            languageModelSelectionBox.setEnabled(googleSpeechToTextButton.isSelected());
+
+            formatLbl.setEnabled(googleSpeechToTextButton.isSelected());
+            formatModelSelectionBox.setEnabled(googleSpeechToTextButton.isSelected());
+
+            maxSpeakersLbl.setEnabled(googleSpeechToTextButton.isSelected());
+            googleMaxSpeakersField.setEnabled(googleSpeechToTextButton.isSelected());
+        });
         btnGrp.add(googleSpeechToTextButton);
 
-        JPanel googleOptionsPanel = new JPanel();
+        JPanel googleOptionsPanel = new JPanel(new GridBagLayout());
+        projectIdField = new PromptedTextField("Enter project id");
+        String lastProjectId = PrefHelper.get(LAST_GOOGLE_PROJECT_ID, "");
+        projectIdField.setText(lastProjectId);
+        projectIdField.setEnabled(false);
+
+        credidentialsFileField = new FileSelectionField();
+        String prevCredentialsPath = PrefHelper.get(LAST_GOOGLE_CREDENTIALS_FILE, null);
+        credidentialsFileField.setFileFilter(new FileFilter("Google Service Account Credentials", "json"));
+        if(prevCredentialsPath != null) {
+            credidentialsFileField.setFile(new File(prevCredentialsPath));
+        }
+        credidentialsFileField.setEnabled(false);
+
+        bucketStorageLocationBox = new JComboBox<>(GCSTDiarizationTool.STORAGE_LOCATIONS);
+        bucketStorageLocationBox.setSelectedItem(PrefHelper.get(LAST_GOOGLE_STORAGE_LOCATION, DEFAULT_GOOGLE_STORAGE_LOCATION));
+        bucketStorageLocationBox.setEnabled(false);
+
+        languageModelSelectionBox = new JComboBox<>(GCSTDiarizationTool.SUPPORTED_LANGUAGE_NAMES);
+        languageModelSelectionBox.setSelectedItem(PrefHelper.get(LAST_GOOGLE_LANGUAGE_MODEL, DEFAULT_GOOGLE_LANGUAGE_MODEL));
+        languageModelSelectionBox.setEnabled(false);
+
+        formatModelSelectionBox = new JComboBox<>(GCSTDiarizationTool.SPEECH_TO_TEXT_MODELS);
+        formatModelSelectionBox.setSelectedItem(PrefHelper.get(LAST_GOOGLE_FORMAT_MODEL, DEFAULT_GOOGLE_FORMAT_MODEL));
+        formatModelSelectionBox.setEnabled(false);
+
+        googleMaxSpeakersField = new FormatterTextField<Integer>(FormatterFactory.createFormatter(Integer.class));
+        googleMaxSpeakersField.setPrompt("Enter max speakers, 0 = auto");
+        googleMaxSpeakersField.setValue(0);
+        googleMaxSpeakersField.setEnabled(false);
+
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        gbc.weighty = 0.0;
+        gbc.gridwidth = 1;
+        gbc.gridheight = 1;
+        gbc.insets = new Insets(0, 0, 0, 0);
+        googleOptionsPanel.add(projectIdLbl, gbc);
+        ++gbc.gridy;
+        gbc.insets = new Insets(0, 20, 0, 0);
+        googleOptionsPanel.add(projectIdField, gbc);
+
+        ++gbc.gridy;
+        gbc.insets = new Insets(0, 0, 0, 0);
+        googleOptionsPanel.add(credLbl, gbc);
+        ++gbc.gridy;
+        gbc.insets = new Insets(0, 20, 0, 0);
+        googleOptionsPanel.add(credidentialsFileField, gbc);
+
+        ++gbc.gridy;
+        gbc.insets = new Insets(0, 0, 0, 0);
+        googleOptionsPanel.add(bucketLbl, gbc);
+        ++gbc.gridy;
+        gbc.insets = new Insets(0, 20, 0, 0);
+        googleOptionsPanel.add(bucketStorageLocationBox, gbc);
+
+        ++gbc.gridy;
+        gbc.insets = new Insets(0, 0, 0, 0);
+        googleOptionsPanel.add(languageLbl, gbc);
+        ++gbc.gridy;
+        gbc.insets = new Insets(0, 20, 0, 0);
+        googleOptionsPanel.add(languageModelSelectionBox, gbc);
+
+        ++gbc.gridy;
+        gbc.insets = new Insets(0, 0, 0, 0);
+        googleOptionsPanel.add(formatLbl, gbc);
+        ++gbc.gridy;
+        gbc.insets = new Insets(0, 20, 0, 0);
+        googleOptionsPanel.add(formatModelSelectionBox, gbc);
+
+        ++gbc.gridy;
+        gbc.insets = new Insets(0, 0, 0, 0);
+        googleOptionsPanel.add(maxSpeakersLbl, gbc);
+        ++gbc.gridy;
+        gbc.insets = new Insets(0, 20, 0, 0);
+        googleOptionsPanel.add(googleMaxSpeakersField, gbc);
 
         TitledPanel liumPanel = new TitledPanel("", liumOptionsPanel);
         liumPanel.setLeftDecoration(liumDiarizationButton);
@@ -252,11 +384,6 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         JPanel contentPanel = new JPanel(new VerticalLayout(0));
         contentPanel.add(liumPanel);
         contentPanel.add(googlePanel);
-
-//        btnPanel.getContentContainer().add(liumDiarizationButton);
-//        btnPanel.getContentContainer().add(liumOptionsPanel);
-//
-//        btnPanel.getContentContainer().add(googleSpeechToTextButton);
 
         retVal.add(contentPanel, BorderLayout.CENTER);
 
@@ -306,11 +433,52 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
 
         LIUMDiarizationTool tool = new LIUMDiarizationTool();
         tool.setDoCEClustering(doCEClusteringBox.isSelected());
-        if(maxSpeakersField.getValue() > 0) {
+        if(liumMaxSpeakersField.getValue() > 0) {
             tool.setForceSpeakerMax(true);
-            tool.setMaxSpeakerCount(maxSpeakersField.getValue());
+            tool.setMaxSpeakerCount(liumMaxSpeakersField.getValue());
         } else {
             tool.setForceSpeakerMax(false);
+        }
+        startDiarization(tool, mediaModel.getSessionAudioFile());
+    }
+
+    /**
+     * Diarize using Google Cloud Speech to Text services.
+     *
+     */
+    private void startGCSTDiarization() {
+        SessionMediaModel mediaModel = diarizationTier.getParentView().getEditor().getMediaModel();
+        if(!mediaModel.isSessionAudioAvailable()) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
+
+        final String projectId = projectIdField.getText();
+        PrefHelper.getUserPreferences().put(LAST_GOOGLE_PROJECT_ID,projectId);
+
+        final String credFile = credidentialsFileField.getSelectedFile().getAbsolutePath();
+        PrefHelper.getUserPreferences().put(LAST_GOOGLE_CREDENTIALS_FILE, credFile);
+
+        final String storageLocation = bucketStorageLocationBox.getSelectedItem().toString();
+        PrefHelper.getUserPreferences().put(LAST_GOOGLE_STORAGE_LOCATION, storageLocation);
+
+        final String langModel = languageModelSelectionBox.getSelectedItem().toString();
+        PrefHelper.getUserPreferences().put(LAST_GOOGLE_LANGUAGE_MODEL, langModel);
+        final int langIdx = Arrays.asList(GCSTDiarizationTool.SUPPORTED_LANGUAGE_NAMES).indexOf(langModel);
+        final String langModelTag = langIdx >= 0 ? GCSTDiarizationTool.SUPPORTED_LANGUAGE_TAGS[langIdx] : "en-US";
+
+        final String formatModel = formatModelSelectionBox.getSelectedItem().toString();
+        PrefHelper.getUserPreferences().put(LAST_GOOGLE_FORMAT_MODEL, formatModel);
+
+        busyLabel.setBusy(true);
+
+        GCSTDiarizationTool tool = new GCSTDiarizationTool();
+        tool.setGcstModel(formatModelSelectionBox.getSelectedItem().toString());
+        tool.setLanguageModel(langModelTag);
+        tool.setProjectId(projectId);
+        tool.setCredentialsFile(credFile);
+        if(googleMaxSpeakersField.getValue() > 0) {
+            tool.setMaxSpeakers(googleMaxSpeakersField.getValue());
         }
         startDiarization(tool, mediaModel.getSessionAudioFile());
     }
@@ -319,10 +487,12 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
     public void next() {
         if(getWizardStep(getCurrentStepIndex()) == diarizationSelectionStep) {
             if(liumDiarizationButton.isSelected()) {
-                if(!maxSpeakersField.validateText()) {
+                if(!liumMaxSpeakersField.validateText()) {
                     Toolkit.getDefaultToolkit().beep();
                     return;
                 }
+            } else if(googleSpeechToTextButton.isSelected()) {
+                // TODO check google params
             }
         }
         super.next();
@@ -331,7 +501,10 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
     @Override
     public void gotoStep(int stepIndex) {
         if(getWizardStep(stepIndex) == reportStep) {
-            startLIUMDiarization();
+            if(liumDiarizationButton.isSelected())
+                startLIUMDiarization();
+            else
+                startGCSTDiarization();
         }
         super.gotoStep(stepIndex);
     }
@@ -365,7 +538,7 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
             publish(s);
 
             Project p = diarizationTier.getParentView().getEditor().getProject();
-            DiarizationResultsManager resultsManager = new DiarizationResultsManager(p, s);
+            DiarizationResultsManager resultsManager = new DiarizationResultsManager(p, diarizationTier.getParentView().getEditor().getSession());
             diarizationListener.diarizationEvent(new DiarizationEvent("Saving diarization results to file " + resultsManager.diarizationResultsFile(false)));
 
             try {

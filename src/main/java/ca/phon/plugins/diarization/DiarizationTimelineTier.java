@@ -92,7 +92,10 @@ public class DiarizationTimelineTier extends TimelineTier {
 		SessionFactory factory = SessionFactory.newFactory();
 		recordGrid = new RecordGrid(getTimeModel(), factory.createSession());
 		recordGrid.setUI(new DiarizationRecordGridUI(this));
-		recordGrid.setTiers(Collections.singletonList(SystemTierType.Segment.getName()));
+		List<String> tierList = new ArrayList<>();
+		tierList.add(SystemTierType.Orthography.getName());
+		tierList.add(SystemTierType.Segment.getName());
+		recordGrid.setTiers(tierList);
 		recordGrid.addRecordGridMouseListener(mouseListener);
 		getSelectionModel().addListSelectionListener( (e) -> {
 			int rIdx = getSelectionModel().getLeadSelectionIndex();
