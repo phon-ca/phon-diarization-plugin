@@ -182,11 +182,12 @@ public class GCSTDiarizationTool extends DiarizationTool {
 		return credentials;
 	}
 
-	private String bucketName() {
-		String bucketName = PrefHelper.get(BUCKET_NAME_PROP, null);
+	private String bucketName(String projectId) {
+		final String propName = BUCKET_NAME_PROP + "." + projectId;
+		String bucketName = PrefHelper.get(propName, null);
 		if(bucketName == null) {
-			bucketName = UUID.randomUUID().toString();
-			PrefHelper.getUserPreferences().put(BUCKET_NAME_PROP, bucketName);
+			bucketName = "phon-" + UUID.randomUUID().toString();
+			PrefHelper.getUserPreferences().put(propName, bucketName);
 		}
 		return bucketName;
 	}
@@ -455,7 +456,7 @@ public class GCSTDiarizationTool extends DiarizationTool {
 
 		if(isCancelIfRunning()) return null;
 
-		String bucketName = bucketName();
+		String bucketName = bucketName(projectId);
 		if(!hasBucket(projectId, bucketName)) {
 			fireDiarizationEvent("Creating storage bucket with id " + bucketName);
 			createStorageBucket(projectId, bucketName);
