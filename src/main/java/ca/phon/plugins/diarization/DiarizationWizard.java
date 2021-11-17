@@ -63,7 +63,7 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
 
     private JRadioButton googleSpeechToTextButton;
     private PromptedTextField projectIdField;
-    private FileSelectionField credidentialsFileField;
+    private FileSelectionField credentialsFileField;
     private JComboBox<String> bucketStorageLocationBox;
     private JComboBox<String> languageModelSelectionBox;
     private JComboBox<String> formatModelSelectionBox;
@@ -76,6 +76,7 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
     private BufferPanel bufferPanel;
 
     private AtomicReference<DiarizationWorker> workerRef = new AtomicReference<>();
+    private AtomicReference<Session> resultsRef = new AtomicReference<>();
 
     private BreadcrumbButton btnStop;
 
@@ -140,6 +141,9 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         if(workerRef.get() != null) {
             cancel();
         } else {
+            if(resultsRef.get() != null) {
+                diarizationTier.setSession(resultsRef.get());
+            }
             super.close();
         }
     }
@@ -280,7 +284,7 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
             projectIdField.setEnabled(googleSpeechToTextButton.isSelected());
 
             credLbl.setEnabled(googleSpeechToTextButton.isSelected());
-            credidentialsFileField.setEnabled(googleSpeechToTextButton.isSelected());
+            credentialsFileField.setEnabled(googleSpeechToTextButton.isSelected());
 
             bucketLbl.setEnabled(googleSpeechToTextButton.isSelected());
             bucketStorageLocationBox.setEnabled(googleSpeechToTextButton.isSelected());
@@ -302,13 +306,13 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         projectIdField.setText(lastProjectId);
         projectIdField.setEnabled(false);
 
-        credidentialsFileField = new FileSelectionField();
+        credentialsFileField = new FileSelectionField();
         String prevCredentialsPath = PrefHelper.get(LAST_GOOGLE_CREDENTIALS_FILE, null);
-        credidentialsFileField.setFileFilter(new FileFilter("Google Service Account Credentials", "json"));
+        credentialsFileField.setFileFilter(new FileFilter("Google Service Account Credentials", "json"));
         if(prevCredentialsPath != null) {
-            credidentialsFileField.setFile(new File(prevCredentialsPath));
+            credentialsFileField.setFile(new File(prevCredentialsPath));
         }
-        credidentialsFileField.setEnabled(false);
+        credentialsFileField.setEnabled(false);
 
         bucketStorageLocationBox = new JComboBox<>(GCSTDiarizationTool.STORAGE_LOCATIONS);
         bucketStorageLocationBox.setSelectedItem(PrefHelper.get(LAST_GOOGLE_STORAGE_LOCATION, DEFAULT_GOOGLE_STORAGE_LOCATION));
@@ -345,7 +349,7 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         googleOptionsPanel.add(credLbl, gbc);
         ++gbc.gridy;
         gbc.insets = new Insets(0, 20, 0, 0);
-        googleOptionsPanel.add(credidentialsFileField, gbc);
+        googleOptionsPanel.add(credentialsFileField, gbc);
 
         ++gbc.gridy;
         gbc.insets = new Insets(0, 0, 0, 0);
@@ -417,6 +421,7 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
             workerRef.set(worker);
             worker.execute();
         } catch (IOException e) {
+            tool.fireDiarizationEvent(DiarizationEvent.DiarizationEventType.DiarizationError, e.getLocalizedMessage());
             Toolkit.getDefaultToolkit().beep();
             LogUtil.severe(e);
         }
@@ -456,7 +461,7 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         final String projectId = projectIdField.getText();
         PrefHelper.getUserPreferences().put(LAST_GOOGLE_PROJECT_ID,projectId);
 
-        final String credFile = credidentialsFileField.getSelectedFile().getAbsolutePath();
+        final String credFile = credentialsFileField.getSelectedFile().getAbsolutePath();
         PrefHelper.getUserPreferences().put(LAST_GOOGLE_CREDENTIALS_FILE, credFile);
 
         final String storageLocation = bucketStorageLocationBox.getSelectedItem().toString();
@@ -473,7 +478,8 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         busyLabel.setBusy(true);
 
         GCSTDiarizationTool tool = new GCSTDiarizationTool();
-        tool.setGcstModel(formatModelSelectionBox.getSelectedItem().toString());
+        tool.setStorageLocation(storageLocation);
+        tool.setGcstModel(formatModel);
         tool.setLanguageModel(langModelTag);
         tool.setProjectId(projectId);
         tool.setCredentialsFile(credFile);
@@ -566,8 +572,10 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
 
             try {
                 Session s = get();
-                diarizationTier.setSession(s);
+                resultsRef.set(s);
             } catch(InterruptedException | ExecutionException e) {
+                bufferPanel.getLogBuffer().append("Unable to complete diarization, execution interrupted or cancelled\n");
+                bufferPanel.getLogBuffer().setForeground(Color.red);
                 Toolkit.getDefaultToolkit().beep();
                 LogUtil.severe(e);
             }

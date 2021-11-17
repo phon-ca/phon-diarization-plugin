@@ -90,6 +90,9 @@ public class GCSTDiarizationTool extends DiarizationTool {
 
 	private final static String BUCKET_NAME_PROP = "diarization.bucketName";
 
+	/** Bucket storage location */
+	private String storageLocation = "US";
+
 	/** Language model, should be one of SUPPORTED_LANGUAGE_TAGS */
 	private String languageModel = "en-US";
 
@@ -105,6 +108,8 @@ public class GCSTDiarizationTool extends DiarizationTool {
 	/** Credentials JSON file */
 	private String credentialsFile;
 
+	private volatile boolean cancelIfRunning = false;
+
 	private GoogleCredentials credentials;
 	private AccessToken accessToken;
 
@@ -114,6 +119,14 @@ public class GCSTDiarizationTool extends DiarizationTool {
 
 	public void setCredentialsFile(String credentialsFile) {
 		this.credentialsFile = credentialsFile;
+	}
+
+	public void setStorageLocation(String storageLocation) {
+		this.storageLocation = storageLocation;
+	}
+
+	public String getStorageLocation() {
+		return this.storageLocation;
 	}
 
 	public String getLanguageModel() {
@@ -148,14 +161,25 @@ public class GCSTDiarizationTool extends DiarizationTool {
 		this.maxSpeakers = maxSpeakers;
 	}
 
-	private void loadCredentials() throws IOException {
-		credentials = GoogleCredentials.fromStream(new FileInputStream(new File(credentialsFile)))
-						.createScoped(Collections.singleton(StorageScopes.CLOUD_PLATFORM));
-		credentials.refreshIfExpired();
+	public boolean isCancelIfRunning() {
+		return this.cancelIfRunning;
+	}
+
+	public void setCancelIfRunning(boolean cancelIfRunning) {
+		this.cancelIfRunning = cancelIfRunning;
+	}
+
+	private GoogleCredentials loadCredentials() throws IOException {
+		if(this.credentials == null) {
+			credentials = GoogleCredentials.fromStream(new FileInputStream(new File(credentialsFile)))
+					.createScoped(Collections.singleton(StorageScopes.CLOUD_PLATFORM));
+			credentials.refreshIfExpired();
+		}
 		if(this.accessToken == null)
 			accessToken = credentials.getAccessToken();
 		else
 			accessToken = credentials.refreshAccessToken();
+		return credentials;
 	}
 
 	private String bucketName() {
@@ -179,16 +203,16 @@ public class GCSTDiarizationTool extends DiarizationTool {
 		return false;
 	}
 
-	private void createStorageBucket(String projectId, String bucketId) {
+	private Bucket createStorageBucket(String projectId, String bucketId) {
 		Storage storage = StorageOptions.newBuilder()
 				.setCredentials(credentials)
 				.setProjectId(projectId).build().getService();
 
 		StorageClass storageClass = StorageClass.STANDARD;
-		String location = "US";
 
 		Bucket bucket = storage.create(BucketInfo.newBuilder(bucketId)
-				.setStorageClass(storageClass).setLocation(location).build());
+				.setStorageClass(storageClass).setLocation(getStorageLocation()).build());
+		return bucket;
 	}
 
 	private boolean audioFileExistsInBucket(String projectId, String bucketName, String objectName) {
@@ -216,6 +240,7 @@ public class GCSTDiarizationTool extends DiarizationTool {
 
 	private File checkAudioFileEncoding(AudioFile audioFile) throws IOException, AudioIOException {
 		File retVal = audioFile.getFile();
+
 		if(audioFile.getSampleRate() != UPLOAD_SAMPLE_RATE || audioFile.getNumberOfChannels() != UPLOAD_CHANNEL_COUNT) {
 			Sampled sampled = new AudioFileSampled(audioFile);
 
@@ -224,10 +249,15 @@ public class GCSTDiarizationTool extends DiarizationTool {
 				final Resampler resampler = new Resampler();
 				sampled = resampler.resample(sampled, UPLOAD_SAMPLE_RATE);
 			}
+
+			if(isCancelIfRunning()) return retVal;
+
 			if(audioFile.getNumberOfChannels() != UPLOAD_CHANNEL_COUNT) {
 				fireDiarizationEvent("Converting audio to mono");
 				sampled = new MonoSampled(sampled);
 			}
+
+			if(isCancelIfRunning()) return retVal;
 
 			// save samples to temporary file
 			final File tempFile = File.createTempFile("phon", "diarization.wav");
@@ -329,7 +359,11 @@ public class GCSTDiarizationTool extends DiarizationTool {
 		Path path = file.toPath();
 		byte[] content = Files.readAllBytes(path);
 
-		try (SpeechClient speechClient = SpeechClient.create()) {
+		SpeechSettings speechSettings = SpeechSettings
+				.newBuilder()
+				.setCredentialsProvider(this::loadCredentials).build();
+
+		try (SpeechClient speechClient = SpeechClient.create(speechSettings)) {
 			RecognitionAudio recognitionAudio =
 					RecognitionAudio.newBuilder().setContent(ByteString.copyFrom(content)).build();
 
@@ -358,7 +392,10 @@ public class GCSTDiarizationTool extends DiarizationTool {
 	}
 
 	private Session gcstBucketDiarization(String gsUrl) throws IOException {
-		try (SpeechClient speechClient = SpeechClient.create()) {
+		SpeechSettings speechSettings = SpeechSettings
+				.newBuilder()
+				.setCredentialsProvider(this::loadCredentials).build();
+		try (SpeechClient speechClient = SpeechClient.create(speechSettings)) {
 			SpeakerDiarizationConfig speakerDiarizationConfig =
 					SpeakerDiarizationConfig.newBuilder()
 							.setEnableSpeakerDiarization(true)
@@ -381,6 +418,7 @@ public class GCSTDiarizationTool extends DiarizationTool {
 			while(!response.isDone()) {
 				fireDiarizationEvent("Waiting for response...");
 				Thread.sleep(10000);
+				if(isCancelIfRunning()) response.cancel(true);
 			}
 
 			LongRunningRecognizeResponse longRunningRecognizeResponse = response.get();
@@ -389,7 +427,7 @@ public class GCSTDiarizationTool extends DiarizationTool {
 							.getAlternatives(0);
 
 			return processSpeechRecognitionAlternative(alternative);
-		} catch (InterruptedException | ExecutionException e) {
+		} catch (InterruptedException | ExecutionException | IllegalStateException e) {
 			throw new IOException(e);
 		}
 	}
@@ -399,6 +437,11 @@ public class GCSTDiarizationTool extends DiarizationTool {
 		fireDiarizationEvent("---------------------------------------");
 		fireDiarizationEvent("Project id: " + projectId);
 		fireDiarizationEvent("Service account credentials file: " + credentialsFile);
+		fireDiarizationEvent("Bucket storage location: " + getStorageLocation());
+		fireDiarizationEvent("Language model: " + getLanguageModel());
+		fireDiarizationEvent("Format model: " + getGcstModel());
+		if(getMaxSpeakers() > 0)
+			fireDiarizationEvent("Max speakers: " + getMaxSpeakers());
 		fireDiarizationEvent("\n");
 
 		try {
@@ -410,6 +453,8 @@ public class GCSTDiarizationTool extends DiarizationTool {
 			return null;
 		}
 
+		if(isCancelIfRunning()) return null;
+
 		String bucketName = bucketName();
 		if(!hasBucket(projectId, bucketName)) {
 			fireDiarizationEvent("Creating storage bucket with id " + bucketName);
@@ -418,15 +463,23 @@ public class GCSTDiarizationTool extends DiarizationTool {
 			fireDiarizationEvent("Using storage bucket with id " + bucketName);
 		}
 
+		if(isCancelIfRunning()) return null;
+
 		try (AudioFile audioFile = AudioIO.openAudioFile(file)) {
-			final File resampledFile = checkAudioFileEncoding(audioFile);
+			fireDiarizationEvent("Audio file is " + audioFile.getAudioFileEncoding() + " " +
+					audioFile.getNumberOfChannels() + "ch " + "@" + audioFile.getSampleRate() + "Hz");
+			if(isCancelIfRunning()) return null;
 
 			// if less than 60s, use short method
 			if(audioFile.getLength() < 60.0f) {
-				fireDiarizationEvent("Waiting for diarization result....");
+				final File resampledFile = checkAudioFileEncoding(audioFile);
+				if(isCancelIfRunning()) return null;
+				fireDiarizationEvent("Requesting diarization for " + file.getName());
 				return gcstShortFileDiarization(resampledFile);
 			} else {
 				if(!audioFileExistsInBucket(projectId, bucketName, file.getName())) {
+					final File resampledFile = checkAudioFileEncoding(audioFile);
+					if(isCancelIfRunning()) return null;
 					try {
 						fireDiarizationEvent("Uploading audio file to bucket " + bucketName + " with name " + file.getName());
 						uploadAudioFile(projectId, bucketName, file.getName(), resampledFile);
@@ -437,8 +490,11 @@ public class GCSTDiarizationTool extends DiarizationTool {
 						return null;
 					}
 				}
-				fireDiarizationEvent("Waiting for diarization result....");
+
+				if(isCancelIfRunning()) return null;
+
 				final String gsUrl = "gs://" + bucketName + "/" + file.getName();
+				fireDiarizationEvent("Requesting diarization for " + gsUrl);
 				return gcstBucketDiarization(gsUrl);
 			}
 		} catch (IOException | AudioIOException e) {
@@ -465,14 +521,17 @@ public class GCSTDiarizationTool extends DiarizationTool {
 		worker.invokeLater(sessionFutureTask);
 		worker.start();
 
-		return new GCSTDiarizationResult(sessionFutureTask);
+		return new GCSTDiarizationResult(worker, sessionFutureTask);
 	}
 
 	private class GCSTDiarizationResult implements DiarizationFutureResult {
 
+		private PhonWorker worker;
+
 		FutureTask<Session> futureSession;
 
-		public GCSTDiarizationResult(FutureTask<Session> futureSession) {
+		public GCSTDiarizationResult(PhonWorker worker, FutureTask<Session> futureSession) {
+			this.worker = worker;
 			this.futureSession = futureSession;
 		}
 
@@ -483,7 +542,10 @@ public class GCSTDiarizationTool extends DiarizationTool {
 
 		@Override
 		public void cancel() {
+			worker.shutdown();
 			this.futureSession.cancel(true);
+
+			setCancelIfRunning(true);
 		}
 
 	}
