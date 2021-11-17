@@ -5,7 +5,7 @@ import ca.phon.audio.*;
 import ca.phon.orthography.Orthography;
 import ca.phon.session.*;
 import ca.phon.session.Record;
-import ca.phon.util.PrefHelper;
+import ca.phon.util.*;
 import ca.phon.worker.PhonWorker;
 import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.api.gax.longrunning.OperationFuture;
@@ -246,7 +246,7 @@ public class GCSTDiarizationTool extends DiarizationTool {
 			Sampled sampled = new AudioFileSampled(audioFile);
 
 			if(audioFile.getSampleRate() != UPLOAD_SAMPLE_RATE) {
-				fireDiarizationEvent("Resampling audio @ 16KHz");
+				fireDiarizationEvent("Resampling audio @16.0KHz");
 				final Resampler resampler = new Resampler();
 				sampled = resampler.resample(sampled, UPLOAD_SAMPLE_RATE);
 			}
@@ -467,8 +467,9 @@ public class GCSTDiarizationTool extends DiarizationTool {
 		if(isCancelIfRunning()) return null;
 
 		try (AudioFile audioFile = AudioIO.openAudioFile(file)) {
-			fireDiarizationEvent("Audio file is " + audioFile.getAudioFileEncoding() + " " +
-					audioFile.getNumberOfChannels() + "ch " + "@" + audioFile.getSampleRate() + "Hz");
+			fireDiarizationEvent(String.format("Audio file format: %s@%.1fKHz, channels: %d, length: %s",
+					audioFile.getAudioFileEncoding().toString(), audioFile.getSampleRate() / 1000.0f,
+					audioFile.getNumberOfChannels(), MsFormatter.msToDisplayString((long)(audioFile.getLength() * 1000.0f))));
 			if(isCancelIfRunning()) return null;
 
 			// if less than 60s, use short method

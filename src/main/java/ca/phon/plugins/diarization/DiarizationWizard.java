@@ -33,6 +33,7 @@ import org.jdesktop.swingx.*;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.*;
 import java.io.*;
 import java.util.Arrays;
 import java.util.concurrent.*;
@@ -67,6 +68,7 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
     private JComboBox<String> bucketStorageLocationBox;
     private JComboBox<String> languageModelSelectionBox;
     private JComboBox<String> formatModelSelectionBox;
+    private JLabel formatModelDescriptionLabel;
     private FormatterTextField<Integer> googleMaxSpeakersField;
 
     private WizardStep reportStep;
@@ -254,6 +256,11 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         gbc.insets = new Insets(0, 20, 0, 0);
         liumOptionsPanel.add(liumMaxSpeakersField, gbc);
 
+        ++gbc.gridy;
+        gbc.weighty = 1.0f;
+        liumOptionsPanel.add(Box.createVerticalGlue(), gbc);
+        gbc.weighty = 0.0f;
+
         liumDiarizationButton.addChangeListener((e) -> {
             ceClusteringLbl.setEnabled(liumDiarizationButton.isSelected());
             doCEClusteringBox.setEnabled(liumDiarizationButton.isSelected());
@@ -294,6 +301,7 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
 
             formatLbl.setEnabled(googleSpeechToTextButton.isSelected());
             formatModelSelectionBox.setEnabled(googleSpeechToTextButton.isSelected());
+            formatModelDescriptionLabel.setEnabled(googleSpeechToTextButton.isSelected());
 
             maxSpeakersLbl.setEnabled(googleSpeechToTextButton.isSelected());
             googleMaxSpeakersField.setEnabled(googleSpeechToTextButton.isSelected());
@@ -322,15 +330,23 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         languageModelSelectionBox.setSelectedItem(PrefHelper.get(LAST_GOOGLE_LANGUAGE_MODEL, DEFAULT_GOOGLE_LANGUAGE_MODEL));
         languageModelSelectionBox.setEnabled(false);
 
+        formatModelDescriptionLabel = new JLabel();
         formatModelSelectionBox = new JComboBox<>(GCSTDiarizationTool.SPEECH_TO_TEXT_MODELS);
         formatModelSelectionBox.setSelectedItem(PrefHelper.get(LAST_GOOGLE_FORMAT_MODEL, DEFAULT_GOOGLE_FORMAT_MODEL));
+        formatModelSelectionBox.addActionListener( (e) -> {
+            formatModelDescriptionLabel.setText(
+                    "<html><p>" + GCSTDiarizationTool.SPEECH_TO_TEXT_MODEL_DESCRIPTIONS[formatModelSelectionBox.getSelectedIndex()] + "</p></html>");
+        });
+        formatModelDescriptionLabel.setText("<html><p>" + GCSTDiarizationTool.SPEECH_TO_TEXT_MODEL_DESCRIPTIONS[formatModelSelectionBox.getSelectedIndex()] + "</p></html>");
         formatModelSelectionBox.setEnabled(false);
+        formatModelDescriptionLabel.setEnabled(false);
 
         googleMaxSpeakersField = new FormatterTextField<Integer>(FormatterFactory.createFormatter(Integer.class));
         googleMaxSpeakersField.setPrompt("Enter max speakers, 0 = auto");
         googleMaxSpeakersField.setValue(0);
         googleMaxSpeakersField.setEnabled(false);
 
+        gbc.anchor = GridBagConstraints.NORTHWEST;
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
@@ -371,6 +387,8 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         ++gbc.gridy;
         gbc.insets = new Insets(0, 20, 0, 0);
         googleOptionsPanel.add(formatModelSelectionBox, gbc);
+        ++gbc.gridy;
+        googleOptionsPanel.add(formatModelDescriptionLabel, gbc);
 
         ++gbc.gridy;
         gbc.insets = new Insets(0, 0, 0, 0);
@@ -379,15 +397,27 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         gbc.insets = new Insets(0, 20, 0, 0);
         googleOptionsPanel.add(googleMaxSpeakersField, gbc);
 
+        ++gbc.gridy;
+        gbc.weighty = 1.0f;
+        googleOptionsPanel.add(Box.createVerticalGlue(), gbc);
+
         TitledPanel liumPanel = new TitledPanel("", liumOptionsPanel);
         liumPanel.setLeftDecoration(liumDiarizationButton);
 
         TitledPanel googlePanel = new TitledPanel("", googleOptionsPanel);
         googlePanel.setLeftDecoration(googleSpeechToTextButton);
 
-        JPanel contentPanel = new JPanel(new VerticalLayout(0));
-        contentPanel.add(liumPanel);
-        contentPanel.add(googlePanel);
+        JPanel contentPanel = new JPanel(new GridBagLayout());
+        gbc = new GridBagConstraints();
+        gbc.weighty = 0.5f;
+        gbc.weightx = 1.0f;
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.fill = GridBagConstraints.BOTH;
+
+        contentPanel.add(liumPanel, gbc);
+        ++gbc.gridy;
+        contentPanel.add(googlePanel, gbc);
 
         retVal.add(contentPanel, BorderLayout.CENTER);
 
