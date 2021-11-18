@@ -81,6 +81,38 @@
 				</configuration>
 			</plugin>
 
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-shade-plugin</artifactId>
+				<version>3.2.4</version>
+				<executions>
+					<execution>
+						<phase>package</phase>
+						<goals>
+							<goal>shade</goal>
+						</goals>
+						<configuration>
+							<artifactSet>
+								<includes>
+									<include>fr.lium.spkDiarization:spkdiarization</include>
+									<include>com.google.*:*</include>
+									<include>org.checkerframework:*</include>
+									<include>io.opencensus:*</include>
+									<include>com.fasterxml.*:*</include>
+									<include>javax.annotation:javax.annotation-api</include>
+									<include>io.grpc:*</include>
+									<include>org.threeten:*</include>
+									<include>org.apache.httpcomponents:*</include>
+									<include>commons-logging:commons-logging</include>
+									<include>commons-codec:commons-codec</include>
+									<include>org.conscrypt:*</include>
+								</includes>
+							</artifactSet>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+
 		</plugins>
 	</build>
 </project>
