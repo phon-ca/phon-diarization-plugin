@@ -101,13 +101,25 @@
 									<include>com.fasterxml.*:*</include>
 									<include>javax.annotation:javax.annotation-api</include>
 									<include>io.grpc:*</include>
+									<include>io.perfmark:*</include>
 									<include>org.threeten:*</include>
 									<include>org.apache.httpcomponents:*</include>
+									<include>org.codehaus.mojo:animal-sniffer-annotations</include>
 									<include>commons-logging:commons-logging</include>
 									<include>commons-codec:commons-codec</include>
 									<include>org.conscrypt:*</include>
 								</includes>
 							</artifactSet>
+							<filters>
+								<filter>
+									<artifact>*:*</artifact>
+									<excludes>
+										<exclude>META-INF/*.SF</exclude>
+										<exclude>META-INF/*.DSA</exclude>
+										<exclude>META-INF/*.RSA</exclude>
+									</excludes>
+								</filter>
+							</filters>
 						</configuration>
 					</execution>
 				</executions>
