@@ -523,12 +523,28 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
     public void next() {
         if(getWizardStep(getCurrentStepIndex()) == diarizationSelectionStep) {
             if(liumDiarizationButton.isSelected()) {
-                if(!liumMaxSpeakersField.validateText()) {
+                if(!liumMaxSpeakersField.validateText() || liumMaxSpeakersField.getValue() < 0) {
                     Toolkit.getDefaultToolkit().beep();
+                    showErrorMessage("Please enter a valid number for max speakers");
                     return;
                 }
             } else if(googleSpeechToTextButton.isSelected()) {
-                // TODO check google params
+                if(projectIdField.getText().trim().length() == 0) {
+                    Toolkit.getDefaultToolkit().beep();
+                    showErrorMessage("Please enter a project id");
+                    return;
+                }
+                if(credentialsFileField.getSelectedFile() == null
+                    || !credentialsFileField.getSelectedFile().exists()) {
+                    Toolkit.getDefaultToolkit().beep();
+                    showErrorMessage("Please select service account credentials file from disk");
+                    return;
+                }
+                if(!googleMaxSpeakersField.validateText() || googleMaxSpeakersField.getValue() < 0) {
+                    Toolkit.getDefaultToolkit().beep();
+                    showErrorMessage("Please enter a valid number for max speakers");
+                    return;
+                }
             }
         }
         super.next();
