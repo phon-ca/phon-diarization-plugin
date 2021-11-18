@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>ca.phon</groupId>
 	<artifactId>phon-diarization-plugin</artifactId>
-	<version>6</version>
+	<version>7</version>
 
 	<distributionManagement>
 		<repository>
