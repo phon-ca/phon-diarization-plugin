@@ -50,7 +50,6 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
     private WizardStep diarizationSelectionStep;
 
     private JRadioButton liumDiarizationButton;
-//    private JCheckBox doCEClusteringBox;
     private FormatterTextField<Integer> liumMaxSpeakersField;
 
     private final static String LAST_GOOGLE_PROJECT_ID = "gcst.projectId";
@@ -227,11 +226,6 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         liumDiarizationButton.setSelected(true);
         btnGrp.add(liumDiarizationButton);
 
-//        doCEClusteringBox = new JCheckBox("Do CE clustering");
-//        doCEClusteringBox.setSelected(true);
-//        doCEClusteringBox.setToolTipText("Perform a final clustering step using the CE method");
-
-//        final JLabel ceClusteringLbl = new JLabel("Clustering options:");
         final JLabel liumMaxSpeakersLbl = new JLabel("Max speakers:");
 
         gbc.gridx = 0;
@@ -240,17 +234,11 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         gbc.weightx = 1.0;
         gbc.gridwidth = 1;
         gbc.gridheight = 1;
-//        liumOptionsPanel.add(ceClusteringLbl, gbc);
-//        ++gbc.gridy;
-//        gbc.insets = new Insets(0, 20, 0, 0);
-//        liumOptionsPanel.add(doCEClusteringBox, gbc);
 
         liumMaxSpeakersField = new FormatterTextField<Integer>(FormatterFactory.createFormatter(Integer.class));
         liumMaxSpeakersField.setPrompt("Enter max speakers, 0 = auto");
         liumMaxSpeakersField.setValue(0);
 
-//        ++gbc.gridy;
-//        gbc.insets = new Insets(0, 0, 0, 0);
         liumOptionsPanel.add(liumMaxSpeakersLbl, gbc);
         ++gbc.gridy;
         gbc.insets = new Insets(0, 20, 0, 0);
@@ -262,9 +250,6 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         gbc.weighty = 0.0f;
 
         liumDiarizationButton.addChangeListener((e) -> {
-//            ceClusteringLbl.setEnabled(liumDiarizationButton.isSelected());
-//            doCEClusteringBox.setEnabled(liumDiarizationButton.isSelected());
-
             liumMaxSpeakersLbl.setEnabled(liumDiarizationButton.isSelected());
             liumMaxSpeakersField.setEnabled(liumDiarizationButton.isSelected());
         });
