@@ -272,9 +272,9 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         // labels
         final JLabel projectIdLbl = new JLabel("Project id:");
         projectIdLbl.setEnabled(false);
-        final JLabel credLbl = new JLabel("Service Account Credentials File (.json):");
+        final JLabel credLbl = new JLabel("Service account credentials file (.json):");
         credLbl.setEnabled(false);
-        final JLabel bucketLbl = new JLabel("Google Cloud Storage Bucket Location (if file length > 60s):");
+        final JLabel bucketLbl = new JLabel("Google Cloud Storage bucket location (if file length > 60s):");
         bucketLbl.setEnabled(false);
         final JLabel languageLbl = new JLabel("Language model:");
         languageLbl.setEnabled(false);
@@ -283,8 +283,8 @@ public class DiarizationWizard extends BreadcrumbWizardFrame {
         final JLabel maxSpeakersLbl = new JLabel("Max speakers:");
         maxSpeakersLbl.setEnabled(false);
 
-        googleSpeechToTextButton = new JRadioButton("Google Speech to Text (Cloud Services)");
-        googleSpeechToTextButton.setToolTipText("Diarize session audio using Google Cloud Services (requires account)");
+        googleSpeechToTextButton = new JRadioButton("Google Cloud Speech-to-Text");
+        googleSpeechToTextButton.setToolTipText("Diarize session audio using Google Cloud Speech-to-Text (requires account)");
         googleSpeechToTextButton.setSelected(false);
         googleSpeechToTextButton.addChangeListener((e) -> {
             projectIdLbl.setEnabled(googleSpeechToTextButton.isSelected());
